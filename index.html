@@ -2,20 +2,23 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Planning Trains</title>
+  <title>Accord Départ</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: Arial, sans-serif; background:#f4f6f9; color:#333; text-align:center; padding:20px; }
-    h1 { color:#0077cc; margin: 0 0 10px; }
-    .tabs { margin:20px 0; }
-    .tab { display:inline-block; margin:5px; padding:10px 15px; background:#ddd; border-radius:5px; cursor:pointer; user-select:none; }
-    .tab.active { background:#0077cc; color:#fff; }
-    form { margin:15px 0; background:#fff; padding:10px; border-radius:8px; display:inline-block; box-shadow:0 0 4px rgba(0,0,0,0.08); }
-    input, button { padding:7px 10px; margin:5px; border-radius:5px; border:1px solid #ccc; }
-    #enableSound { background:#ffe8b3; border-color:#e6c779; }
-    ul { list-style:none; padding:0; }
-    li { background:#fff; margin:6px auto; padding:10px; border-radius:6px; width:340px; box-shadow:0 0 4px rgba(0,0,0,0.08); display:flex; justify-content:space-between; align-items:center; }
-    .actions button { margin-left:6px; }
+    :root{
+      --bg:#f4f6f9;--fg:#333;--brand:#0077cc;--card:#fff;--muted:#ddd;--shadow:0 0 4px rgba(0,0,0,.08);
+    }
+    body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--fg);text-align:center;padding:20px;}
+    h1{color:var(--brand);margin:0 0 14px;display:flex;gap:10px;align-items:center;justify-content:center}
+    .tabs{margin:14px 0;}
+    .tab{display:inline-block;margin:4px;padding:8px 12px;background:var(--muted);border-radius:7px;cursor:pointer;user-select:none;}
+    .tab.active{background:var(--brand);color:#fff}
+    form{margin:12px 0;background:var(--card);padding:10px;border-radius:10px;display:inline-flex;gap:8px;align-items:center;box-shadow:var(--shadow)}
+    input,button{padding:8px 10px;border-radius:7px;border:1px solid #ccc}
+    #enableSound{background:#ffe8b3;border-color:#e6c779}
+    ul{list-style:none;padding:0;margin-top:12px}
+    li{background:#fff;margin:6px auto;padding:10px;border-radius:8px;width:min(420px,92%);box-shadow:var(--shadow);display:flex;justify-content:space-between;align-items:center}
+    .actions button{margin-left:6px}
   </style>
 </head>
 <body>
@@ -30,19 +33,20 @@
     <button type="submit">Ajouter</button>
   </form>
 
-  <!-- Bouton pour autoriser son & notifications (obligatoire une fois) -->
-  <div>
-    <button id="enableSound">🔊 Activer son & notifications</button>
-  </div>
+  <!-- Bouton d’activation (à cliquer une fois par poste) -->
+  <div><button id="enableSound">🔊 Activer son & notifications</button></div>
 
   <ul id="listeTrains"></ul>
 
-  <!-- Firebase compat (pour site HTML simple) -->
+  <!-- Fallback audio local (mettez votre fichier dans /sounds/alarme.mp3) -->
+  <audio id="fallbackAlarm" src="sounds/alarme.mp3" preload="auto" loop style="display:none"></audio>
+
+  <!-- Firebase compat -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 
   <script>
-    // ===== Config Firebase =====
+    // ===== CONFIG FIREBASE =====
     const firebaseConfig = {
       apiKey: "AIzaSyCJNVjAS8-hqW6KBcewBzUHXc6gbz1hj9c",
       authDomain: "accord-depart-48400.firebaseapp.com",
@@ -55,307 +59,267 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    // ===== Constantes & refs =====
+    // ===== CONSTANTES & REFS =====
     const jours = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
     const tabs = document.getElementById('joursTabs');
     const liste = document.getElementById('listeTrains');
     const form = document.getElementById('trainForm');
     const enableBtn = document.getElementById('enableSound');
+    const fallback = document.getElementById('fallbackAlarm');
+    const CATCHUP_MINUTES = 3; // fenêtre de rattrapage max si onglet "dort"
 
-    // Fenêtre de rattrapage (minutes) quand l’onglet se “réveille”
-    const CATCHUP_MINUTES = 3;
+    // ===== AUDIO: WebAudio + fallback <audio> =====
+    let audioCtx=null,gainNode=null,loopTimer=null,audioReady=false;
+    let baseTitle=document.title,titleTimer=null;
 
-    // ===== WebAudio (son “ding-dong” en boucle, même onglet arrière-plan après activation) =====
-    let audioCtx = null, gainNode = null, loopTimer = null, audioReady = false;
-    let baseTitle = document.title, titleTimer = null;
-
-    function ensureAudio() {
-      if (!audioCtx) {
-        const AC = window.AudioContext || window.webkitAudioContext;
+    function ensureAudio(){
+      if(!audioCtx){
+        const AC = window.AudioContext||window.webkitAudioContext;
         audioCtx = new AC();
         gainNode = audioCtx.createGain();
         gainNode.connect(audioCtx.destination);
         gainNode.gain.value = 0.0;
       }
-      if (audioCtx.state === "suspended") audioCtx.resume();
-    }
-
-    // Motif "ding-dong" agréable qui boucle toutes les 2s
-    function startAlarmLoop() {
-      ensureAudio();
-      stopAlarmLoop(); // sécurité
-
-      function playDingDong() {
-        // DING (aigu)
-        const o1 = audioCtx.createOscillator(); o1.type = "sine"; o1.frequency.value = 1000;
-        const g1 = audioCtx.createGain(); g1.gain.value = 0;
-        o1.connect(g1); g1.connect(gainNode);
-        const t = audioCtx.currentTime;
-        g1.gain.linearRampToValueAtTime(0.28, t + 0.02);
-        g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
-        o1.start(t); o1.stop(t + 0.5);
-
-        // DONG (grave, +0.5s)
-        const o2 = audioCtx.createOscillator(); o2.type = "sine"; o2.frequency.value = 400;
-        const g2 = audioCtx.createGain(); g2.gain.value = 0;
-        o2.connect(g2); g2.connect(gainNode);
-        const t2 = t + 0.5;
-        g2.gain.linearRampToValueAtTime(0.32, t2 + 0.02);
-        g2.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.6);
-        o2.start(t2); o2.stop(t2 + 0.7);
-      }
-
-      playDingDong();
-      loopTimer = setInterval(playDingDong, 2000);
-
-      // fade-in volume global
-      gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-      gainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.05);
-
-      // Titre clignotant
-      startTitleFlash();
-    }
-
-    function stopAlarmLoop() {
-      if (loopTimer) { clearInterval(loopTimer); loopTimer = null; }
-      if (audioCtx && gainNode) {
-        // fade-out
-        gainNode.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.1);
-      }
-      stopTitleFlash();
+      if(audioCtx.state==="suspended") audioCtx.resume();
     }
 
     function startTitleFlash(){
-      if (titleTimer) return;
+      if(titleTimer) return;
       let on=false;
-      titleTimer = setInterval(()=> {
-        on=!on;
-        document.title = on ? "🔶 ALERTE — " + baseTitle : baseTitle;
-      }, 700);
+      titleTimer = setInterval(()=>{ on=!on; document.title = on?("🔶 ALERTE — "+baseTitle):baseTitle; },700);
     }
     function stopTitleFlash(){
-      if (titleTimer){ clearInterval(titleTimer); titleTimer=null; }
+      if(titleTimer){ clearInterval(titleTimer); titleTimer=null; }
       document.title = baseTitle;
     }
 
-    // Activation son & notifications (à faire une fois par poste)
-    enableBtn.addEventListener("click", async () => {
+    // Ding-dong agréable en boucle + fallback mp3
+    function startAlarmLoop(){
       ensureAudio();
-      try {
-        // petit bip quasi inaudible pour "déverrouiller" l'audio
-        const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+      stopAlarmLoop(); // sécurité
+
+      function playDingDong(){
+        const t = audioCtx.currentTime;
+
+        // DING (aigu)
+        const o1 = audioCtx.createOscillator();
+        const g1 = audioCtx.createGain();
+        o1.type="sine"; o1.frequency.value=1000;
+        o1.connect(g1); g1.connect(gainNode);
+        g1.gain.setValueAtTime(0, t);
+        g1.gain.linearRampToValueAtTime(0.30, t+0.02);
+        g1.gain.exponentialRampToValueAtTime(0.0001, t+0.45);
+        o1.start(t); o1.stop(t+0.5);
+
+        // DONG (grave, +0.5s)
+        const o2 = audioCtx.createOscillator();
+        const g2 = audioCtx.createGain();
+        o2.type="sine"; o2.frequency.value=400;
+        o2.connect(g2); g2.connect(gainNode);
+        g2.gain.setValueAtTime(0, t+0.5);
+        g2.gain.linearRampToValueAtTime(0.35, t+0.52);
+        g2.gain.exponentialRampToValueAtTime(0.0001, t+1.1);
+        o2.start(t+0.5); o2.stop(t+1.2);
+      }
+
+      // 1) WebAudio en boucle
+      playDingDong();
+      loopTimer = setInterval(playDingDong, 2000);
+      gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+      gainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.05);
+
+      // 2) Fallback mp3 (si WebAudio est suspendu en arrière-plan)
+      try { fallback.currentTime = 0; fallback.play(); } catch(_){}
+
+      startTitleFlash();
+    }
+
+    function stopAlarmLoop(){
+      if(loopTimer){ clearInterval(loopTimer); loopTimer=null; }
+      if(audioCtx && gainNode){
+        gainNode.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.1);
+      }
+      try { fallback.pause(); fallback.currentTime = 0; } catch(_){}
+      stopTitleFlash();
+    }
+
+    // Activation unique : débloque WebAudio + <audio>, demande notifications
+    enableBtn.addEventListener("click", async ()=>{
+      ensureAudio();
+      try{
+        // micro bip inaudible (déverrouillage WebAudio)
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
         o.type="sine"; o.frequency.value=440; g.gain.value=0.0001;
         o.connect(g); g.connect(audioCtx.destination);
         const t = audioCtx.currentTime; o.start(t); o.stop(t+0.05);
+
+        // déverrouille aussi l'élément audio fallback
+        await fallback.play();
+        fallback.pause(); fallback.currentTime = 0;
+
         audioReady = true;
-      } catch(e) {
+      }catch(e){
         alert("Autorise le son pour ce site dans ton navigateur.");
       }
-      if ("Notification" in window && Notification.permission !== "granted") {
-        try { await Notification.requestPermission(); } catch(e) {}
+      if("Notification" in window && Notification.permission!=="granted"){
+        try{ await Notification.requestPermission(); }catch(e){}
       }
-      enableBtn.style.display = "none";
+      enableBtn.style.display="none";
     });
 
-    // ===== Jour courant & onglets =====
-    function jourCourant() {
-      const i = new Date().getDay(); // 0=Dimanche, 1=Lundi...
-      return i === 0 ? "Dimanche" : jours[i-1];
-    }
+    // ===== ONGLET & UI =====
+    function jourCourant(){ const i=new Date().getDay(); return i===0?"Dimanche":jours[i-1]; }
     let jourActif = jourCourant();
 
-    jours.forEach(jour => {
-      const tab = document.createElement('div');
-      tab.textContent = jour;
-      tab.classList.add('tab');
-      if (jour === jourActif) tab.classList.add('active');
-      tab.onclick = () => { jourActif = jour; majTabs(); afficherTrains(); };
+    jours.forEach(jour=>{
+      const tab=document.createElement('div');
+      tab.textContent=jour; tab.className="tab"+(jour===jourActif?" active":"");
+      tab.onclick=()=>{ jourActif=jour; majTabs(); afficherTrains(); };
       tabs.appendChild(tab);
     });
     function majTabs(){
-      Array.from(tabs.children).forEach(t => t.classList.toggle('active', t.textContent===jourActif));
+      [...tabs.children].forEach(t=>t.classList.toggle('active', t.textContent===jourActif));
     }
 
     // ===== Helpers & mémoire locale =====
-    function toTimeValue(hhmm){ const [h,m] = hhmm.split(':').map(Number); return h*60 + m; }
+    function toTimeValue(hhmm){ const [h,m]=hhmm.split(':').map(Number); return h*60+m; }
     function todayKey(){ return new Date().toISOString().slice(0,10); } // YYYY-MM-DD
     // dédup locale par jour
     function getRungSet(){ const k="rung_"+todayKey(); try{return JSON.parse(localStorage.getItem(k))||{}}catch{return{}} }
     function setRungSet(o){ localStorage.setItem("rung_"+todayKey(), JSON.stringify(o)); }
     function hasRung(id){ return !!getRungSet()[id]; }
     function markRung(id){ const s=getRungSet(); s[id]=true; setRungSet(s); }
-    // rattrapage : mémorise dernière minute traitée
+    // rattrapage : minute déjà traitée
     function lastCheckKey(){ return "lastCheckMin_"+todayKey(); }
     function getLastCheckedMinute(){ const v=localStorage.getItem(lastCheckKey()); return v?parseInt(v,10):null; }
     function setLastCheckedMinute(min){ localStorage.setItem(lastCheckKey(), String(min)); }
-    // purge simple si on revient un autre jour
+    // purge jour
     (function stampToday(){
       const k="lastVisitDate", now=todayKey(), prev=localStorage.getItem(k);
       if(prev!==now){ localStorage.setItem(k, now); localStorage.removeItem("rung_"+now); localStorage.removeItem("lastCheckMin_"+now); }
     })();
 
-    // ===== Affichage (tri par timeValue) =====
+    // ===== LISTE =====
     async function afficherTrains(){
-      liste.innerHTML = "";
-      try {
-        const snap = await db.collection("trains")
-          .where("jour","==",jourActif)
-          .orderBy("timeValue")
-          .get();
-        const rows = [];
-        snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
+      liste.innerHTML="";
+      try{
+        const snap = await db.collection("trains").where("jour","==",jourActif).orderBy("timeValue").get();
+        const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()}));
         rows.forEach(renderRow);
-      } catch(e) {
+      }catch(e){
         const snap = await db.collection("trains").where("jour","==",jourActif).get();
-        const rows = [];
-        snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
-        rows.sort((a,b) => (a.timeValue ?? toTimeValue(a.horaire)) - (b.timeValue ?? toTimeValue(b.horaire)));
+        const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()}));
+        rows.sort((a,b)=>(a.timeValue ?? toTimeValue(a.horaire))-(b.timeValue ?? toTimeValue(b.horaire)));
         rows.forEach(renderRow);
-        console.warn("⚠️ Si Firestore demande un index (jour + timeValue), clique 'Create index', attends 1–2 min, puis recharge.");
+        console.warn("⚠️ Crée l’index Firestore (jour + timeValue) si demandé.");
       }
     }
     function renderRow(t){
-      const li = document.createElement('li');
-      li.innerHTML = `<span>Train ${t.numero} - ${t.horaire}</span>`;
-      const actions = document.createElement('div');
-      actions.className="actions";
-
-      const btnEdit = document.createElement('button');
-      btnEdit.textContent="✏️";
-      btnEdit.onclick = () => modifierTrain(t.id, t);
-
-      const btnDel = document.createElement('button');
-      btnDel.textContent="🗑️";
-      btnDel.onclick = () => supprimerTrain(t.id);
-
-      actions.appendChild(btnEdit);
-      actions.appendChild(btnDel);
-      li.appendChild(actions);
-      liste.appendChild(li);
+      const li=document.createElement('li');
+      li.innerHTML=`<span>Train ${t.numero} - ${t.horaire}</span>`;
+      const actions=document.createElement('div'); actions.className="actions";
+      const bE=document.createElement('button'); bE.textContent="✏️"; bE.onclick=()=>modifierTrain(t.id,t);
+      const bD=document.createElement('button'); bD.textContent="🗑️"; bD.onclick=()=>supprimerTrain(t.id);
+      actions.append(bE,bD); li.appendChild(actions); liste.appendChild(li);
     }
 
     // ===== CRUD =====
-    form.addEventListener('submit', async e => {
+    form.addEventListener('submit', async e=>{
       e.preventDefault();
-      const numero = document.getElementById('numero').value.trim();
-      const horaire = document.getElementById('horaire').value;
+      const numero=document.getElementById('numero').value.trim();
+      const horaire=document.getElementById('horaire').value;
       if(!numero.match(/^[A-Za-z0-9]+$/) || !horaire) return;
-
-      await db.collection("trains").add({
-        numero,
-        horaire,
-        jour: jourActif,
-        timeValue: toTimeValue(horaire)
-      });
-      form.reset();
-      afficherTrains();
+      await db.collection("trains").add({ numero, horaire, jour:jourActif, timeValue: toTimeValue(horaire) });
+      form.reset(); afficherTrains();
     });
-    async function modifierTrain(id, train){
-      const nouveauNumero = prompt("Nouveau numéro ?", train.numero);
-      const nouvelHoraire = prompt("Nouvel horaire (HH:MM) ?", train.horaire);
-      if(nouveauNumero && /^\d{2}:\d{2}$/.test(nouvelHoraire)){
-        await db.collection("trains").doc(id).update({
-          numero: nouveauNumero,
-          horaire: nouvelHoraire,
-          timeValue: toTimeValue(nouvelHoraire)
-        });
+    async function modifierTrain(id,t){
+      const n=prompt("Nouveau numéro ?",t.numero);
+      const h=prompt("Nouvel horaire (HH:MM) ?",t.horaire);
+      if(n && /^\d{2}:\d{2}$/.test(h)){
+        await db.collection("trains").doc(id).update({ numero:n, horaire:h, timeValue: toTimeValue(h) });
         afficherTrains();
       }
     }
     async function supprimerTrain(id){
       if(confirm("Êtes-vous sûr de vouloir supprimer ce train ?")){
-        await db.collection("trains").doc(id).delete();
-        afficherTrains();
+        await db.collection("trains").doc(id).delete(); afficherTrains();
       }
     }
 
-    // ===== Alarmes (rattrapage + arrière-plan) =====
+    // ===== ALARMES =====
     async function checkAlarme(){
-      const now = new Date();
-      const nowMin = now.getHours()*60 + now.getMinutes();
-      const jc = jourCourant();
+      const now=new Date();
+      const nowMin=now.getHours()*60 + now.getMinutes();
+      const jc=jourCourant();
 
-      // fenêtre de rattrapage : max CATCHUP_MINUTES
-      const last = getLastCheckedMinute();
-      const leftBound = Math.max(0, nowMin - CATCHUP_MINUTES);
-      const startMin = (last === null) ? leftBound : Math.min(nowMin, Math.max(last + 1, leftBound));
-      if (startMin > nowMin) { setLastCheckedMinute(nowMin); return; }
+      const last=getLastCheckedMinute();
+      const leftBound=Math.max(0, nowMin - CATCHUP_MINUTES);
+      const startMin=(last===null)? leftBound : Math.min(nowMin, Math.max(last+1, leftBound));
+      if(startMin>nowMin){ setLastCheckedMinute(nowMin); return; }
 
       let snap;
-      try {
+      try{
         snap = await db.collection("trains")
           .where("jour","==",jc)
-          .where("timeValue",">=", startMin)
-          .where("timeValue","<=", nowMin)
+          .where("timeValue",">=",startMin)
+          .where("timeValue","<=",nowMin)
           .orderBy("timeValue")
           .get();
-      } catch(e) {
-        const all = await db.collection("trains").where("jour","==",jc).get();
-        const arr = [];
-        all.forEach(d => {
-          const t = d.data();
-          if (t.timeValue >= startMin && t.timeValue <= nowMin) arr.push({id:d.id, ...t});
-        });
+      }catch(e){
+        const all=await db.collection("trains").where("jour","==",jc).get();
+        const arr=[]; all.forEach(d=>{ const t=d.data(); if(t.timeValue>=startMin && t.timeValue<=nowMin) arr.push({id:d.id,...t}); });
         arr.sort((a,b)=>a.timeValue-b.timeValue);
-        for (const t of arr) { await triggerAlarmOnce(t.id, t, jc); }
+        for(const t of arr) await triggerAlarmOnce(t.id,t,jc);
         setLastCheckedMinute(nowMin);
         return;
       }
 
-      const pending = [];
-      snap.forEach(doc => pending.push({ id: doc.id, ...doc.data() }));
-      for (const t of pending) { await triggerAlarmOnce(t.id, t, jc); }
+      const pending=[]; snap.forEach(d=>pending.push({id:d.id,...d.data()}));
+      for(const t of pending) await triggerAlarmOnce(t.id,t,jc);
       setLastCheckedMinute(nowMin);
     }
 
-    async function triggerAlarmOnce(docId, t, jc){
-      if (hasRung(docId)) return;
+    async function triggerAlarmOnce(docId,t,jc){
+      if(hasRung(docId)) return;
 
-      if (audioReady) { try { startAlarmLoop(); } catch(e){} }
+      // tente toujours de démarrer la boucle sonore (WebAudio + fallback)
+      try{ startAlarmLoop(); }catch(_){}
 
-      const message = `Train ${t.numero} (${jc} - ${t.horaire}) !`;
+      const message=`Train ${t.numero} (${jc} - ${t.horaire}) !`;
 
-      // Notification persistante (son système + reste affichée)
-      if ("Notification" in window && Notification.permission === "granted") {
-        try {
-          const n = new Notification("🚂 Alarme train", {
-            body: message,
-            requireInteraction: true,
-            tag: "alarme-train-" + docId,
-            renotify: true
+      // Notification persistante (renotify)
+      if("Notification" in window && Notification.permission==="granted"){
+        try{
+          const n=new Notification("🚂 Alarme train",{
+            body:message, requireInteraction:true, tag:"alarme-train-"+docId, renotify:true
           });
-          n.onclick = () => { window.focus(); try{ n.close(); }catch(e){} };
-        } catch(e){}
+          n.onclick=()=>{ window.focus(); try{n.close();}catch(_){}}; 
+        }catch(_){}
       }
 
-      // Si l’onglet est visible, on force l’acquittement via alert, et on coupe ensuite
-      if (!document.hidden) {
-        alert("🚂 " + message);
+      // Si l’onglet est visible, on acquitte par alert et on coupe le son
+      if(!document.hidden){
+        alert("🚂 "+message);
         stopAlarmLoop();
       }
-      // Si l’onglet est caché : ding-dong + notif persistent jusqu’au retour
+      // Si onglet caché : ça sonne + notif jusqu’à ce qu’on revienne
 
-      // Dédup locale (une fois par navigateur / jour)
       markRung(docId);
     }
 
-    // Re-check dès que l’onglet redevient visible (et coupe si ça sonnait)
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) {
-        if (loopTimer) { stopAlarmLoop(); }
+    // Quand on revient sur l’onglet: coupe si ça sonne et recheck
+    document.addEventListener("visibilitychange", ()=>{
+      if(!document.hidden){
+        if(loopTimer) stopAlarmLoop();
         checkAlarme();
       }
     });
 
-    // Timers (1s ; si l’onglet est ralenti, le rattrapage couvre la fenêtre)
+    // Tick (si l’onglet est ralenti, le rattrapage compense)
     setInterval(checkAlarme, 1000);
 
-    // ===== Initialisation =====
-    (function init(){
-      majTabs();
-      afficherTrains();
-      checkAlarme();
-    })();
+    // Initialisation
+    (function init(){ majTabs(); afficherTrains(); checkAlarme(); })();
   </script>
 </body>
 </html>
