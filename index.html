@@ -65,8 +65,10 @@
     // Fenêtre de rattrapage (minutes) quand l’onglet se “réveille”
     const CATCHUP_MINUTES = 3;
 
-    // ===== WebAudio (son en boucle même onglet arrière-plan après activation) =====
-    let audioCtx = null, gainNode = null, beepInterval = null, audioReady = false;
+    // ===== WebAudio (son “ding-dong” en boucle, même onglet arrière-plan après activation) =====
+    let audioCtx = null, gainNode = null, loopTimer = null, audioReady = false;
+    let baseTitle = document.title, titleTimer = null;
+
     function ensureAudio() {
       if (!audioCtx) {
         const AC = window.AudioContext || window.webkitAudioContext;
@@ -77,47 +79,52 @@
       }
       if (audioCtx.state === "suspended") audioCtx.resume();
     }
+
+    // Motif "ding-dong" agréable qui boucle toutes les 2s
     function startAlarmLoop() {
       ensureAudio();
       stopAlarmLoop(); // sécurité
-      const playPattern = () => {
-        // bip 1
-        const o1 = audioCtx.createOscillator(); o1.type="sine"; o1.frequency.value=880;
-        const g1 = audioCtx.createGain(); g1.gain.value=0;
+
+      function playDingDong() {
+        // DING (aigu)
+        const o1 = audioCtx.createOscillator(); o1.type = "sine"; o1.frequency.value = 1000;
+        const g1 = audioCtx.createGain(); g1.gain.value = 0;
         o1.connect(g1); g1.connect(gainNode);
         const t = audioCtx.currentTime;
-        g1.gain.setValueAtTime(0, t);
-        g1.gain.linearRampToValueAtTime(0.18, t+0.03);
-        g1.gain.exponentialRampToValueAtTime(0.0001, t+0.35);
-        o1.start(t); o1.stop(t+0.4);
+        g1.gain.linearRampToValueAtTime(0.28, t + 0.02);
+        g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+        o1.start(t); o1.stop(t + 0.5);
 
-        // bip 2 décalé
-        const o2 = audioCtx.createOscillator(); o2.type="sine"; o2.frequency.value=740;
-        const g2 = audioCtx.createGain(); g2.gain.value=0;
-        o2.connect(g2); o2.connect(gainNode);
-        g2.connect(gainNode);
+        // DONG (grave, +0.5s)
+        const o2 = audioCtx.createOscillator(); o2.type = "sine"; o2.frequency.value = 400;
+        const g2 = audioCtx.createGain(); g2.gain.value = 0;
+        o2.connect(g2); g2.connect(gainNode);
         const t2 = t + 0.5;
-        g2.gain.setValueAtTime(0, t2);
-        g2.gain.linearRampToValueAtTime(0.18, t2+0.03);
-        g2.gain.exponentialRampToValueAtTime(0.0001, t2+0.35);
-        o2.start(t2); o2.stop(t2+0.4);
-      };
-      playPattern();
-      beepInterval = setInterval(playPattern, 1500);
+        g2.gain.linearRampToValueAtTime(0.32, t2 + 0.02);
+        g2.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.6);
+        o2.start(t2); o2.stop(t2 + 0.7);
+      }
+
+      playDingDong();
+      loopTimer = setInterval(playDingDong, 2000);
+
+      // fade-in volume global
       gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-      gainNode.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.02);
+      gainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.05);
+
+      // Titre clignotant
       startTitleFlash();
     }
+
     function stopAlarmLoop() {
-      if (beepInterval) { clearInterval(beepInterval); beepInterval = null; }
+      if (loopTimer) { clearInterval(loopTimer); loopTimer = null; }
       if (audioCtx && gainNode) {
-        gainNode.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.05);
+        // fade-out
+        gainNode.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.1);
       }
       stopTitleFlash();
     }
 
-    // Titre clignotant (orange) tant que l’alarme est active
-    let titleTimer=null, baseTitle=document.title;
     function startTitleFlash(){
       if (titleTimer) return;
       let on=false;
@@ -131,11 +138,11 @@
       document.title = baseTitle;
     }
 
-    // Activation son & notifications
+    // Activation son & notifications (à faire une fois par poste)
     enableBtn.addEventListener("click", async () => {
       ensureAudio();
       try {
-        // micro bip silencieux pour déverrouiller
+        // petit bip quasi inaudible pour "déverrouiller" l'audio
         const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
         o.type="sine"; o.frequency.value=440; g.gain.value=0.0001;
         o.connect(g); g.connect(audioCtx.destination);
@@ -181,18 +188,10 @@
     function lastCheckKey(){ return "lastCheckMin_"+todayKey(); }
     function getLastCheckedMinute(){ const v=localStorage.getItem(lastCheckKey()); return v?parseInt(v,10):null; }
     function setLastCheckedMinute(min){ localStorage.setItem(lastCheckKey(), String(min)); }
-    // si la date a changé depuis la dernière visite, on repart propre
-    (function purgeIfDateChanged(){
-      const stampKey="lastVisitDate";
-      const prev=localStorage.getItem(stampKey);
-      const now=todayKey();
-      if(prev!==now){
-        // on nettoie toutes les clés *_YYYY-MM-DD d'hier si besoin :
-        // simple: on reset rung et lastCheck pour aujourd'hui
-        localStorage.removeItem("rung_"+now); // assure une clé propre
-        localStorage.removeItem("lastCheckMin_"+now);
-        localStorage.setItem(stampKey, now);
-      }
+    // purge simple si on revient un autre jour
+    (function stampToday(){
+      const k="lastVisitDate", now=todayKey(), prev=localStorage.getItem(k);
+      if(prev!==now){ localStorage.setItem(k, now); localStorage.removeItem("rung_"+now); localStorage.removeItem("lastCheckMin_"+now); }
     })();
 
     // ===== Affichage (tri par timeValue) =====
@@ -276,11 +275,10 @@
       const nowMin = now.getHours()*60 + now.getMinutes();
       const jc = jourCourant();
 
-      // borne gauche : dernière minute checkée OU now - CATCHUP_MINUTES
+      // fenêtre de rattrapage : max CATCHUP_MINUTES
       const last = getLastCheckedMinute();
       const leftBound = Math.max(0, nowMin - CATCHUP_MINUTES);
       const startMin = (last === null) ? leftBound : Math.min(nowMin, Math.max(last + 1, leftBound));
-
       if (startMin > nowMin) { setLastCheckedMinute(nowMin); return; }
 
       let snap;
@@ -317,12 +315,12 @@
 
       const message = `Train ${t.numero} (${jc} - ${t.horaire}) !`;
 
-      // Notification persistante (renotify si déjà présente)
+      // Notification persistante (son système + reste affichée)
       if ("Notification" in window && Notification.permission === "granted") {
         try {
           const n = new Notification("🚂 Alarme train", {
             body: message,
-            requireInteraction: true, // reste jusqu'à action
+            requireInteraction: true,
             tag: "alarme-train-" + docId,
             renotify: true
           });
@@ -330,36 +328,32 @@
         } catch(e){}
       }
 
-      // Si l’onglet est visible, on force un acquittement via alert (et on coupe après)
+      // Si l’onglet est visible, on force l’acquittement via alert, et on coupe ensuite
       if (!document.hidden) {
         alert("🚂 " + message);
         stopAlarmLoop();
       }
-      // Si l’onglet est caché : le son + notif tournent jusqu’à ce que l’agent revienne
-      // et clique OK (quand il revient, checkAlarme sera relancé via visibilitychange)
+      // Si l’onglet est caché : ding-dong + notif persistent jusqu’au retour
 
-      // Dédup locale
+      // Dédup locale (une fois par navigateur / jour)
       markRung(docId);
     }
 
-    // Re-check immédiat quand l’onglet redevient visible
+    // Re-check dès que l’onglet redevient visible (et coupe si ça sonnait)
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
-        // coupe l’alarme si elle tournait en arrière-plan et notifie tout de suite
-        if (beepInterval) { stopAlarmLoop(); }
+        if (loopTimer) { stopAlarmLoop(); }
         checkAlarme();
       }
     });
 
-    // Timers (1s = précision à la minute ; throttling géré par rattrapage)
+    // Timers (1s ; si l’onglet est ralenti, le rattrapage couvre la fenêtre)
     setInterval(checkAlarme, 1000);
 
-    // ===== Premier rendu =====
+    // ===== Initialisation =====
     (function init(){
-      // construire les onglets
       majTabs();
       afficherTrains();
-      // premier check dès le chargement
       checkAlarme();
     })();
   </script>
