@@ -1,19 +1,21 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Planning Trains</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body { font-family: Arial, sans-serif; background:#f4f6f9; color:#333; text-align:center; padding:20px; }
-    h1 { color:#0077cc; }
+    h1 { color:#0077cc; margin: 0 0 10px; }
     .tabs { margin:20px 0; }
-    .tab { display:inline-block; margin:5px; padding:10px 15px; background:#ddd; border-radius:5px; cursor:pointer; }
+    .tab { display:inline-block; margin:5px; padding:10px 15px; background:#ddd; border-radius:5px; cursor:pointer; user-select:none; }
     .tab.active { background:#0077cc; color:#fff; }
-    form { margin:15px 0; background:#fff; padding:10px; border-radius:8px; display:inline-block; }
-    input, button { padding:7px; margin:5px; border-radius:5px; border:1px solid #ccc; }
+    form { margin:15px 0; background:#fff; padding:10px; border-radius:8px; display:inline-block; box-shadow:0 0 4px rgba(0,0,0,0.08); }
+    input, button { padding:7px 10px; margin:5px; border-radius:5px; border:1px solid #ccc; }
+    #enableSound { background:#ffe8b3; border-color:#e6c779; }
     ul { list-style:none; padding:0; }
-    li { background:#fff; margin:5px auto; padding:10px; border-radius:6px; width:320px; box-shadow:0 0 4px rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center; }
-    .actions button { margin-left:5px; }
+    li { background:#fff; margin:6px auto; padding:10px; border-radius:6px; width:340px; box-shadow:0 0 4px rgba(0,0,0,0.08); display:flex; justify-content:space-between; align-items:center; }
+    .actions button { margin-left:6px; }
   </style>
 </head>
 <body>
@@ -23,24 +25,27 @@
   <div class="tabs" id="joursTabs"></div>
 
   <form id="trainForm">
-    <input type="text" id="numero" placeholder="Numéro de train (ex: EVO5525)" pattern="[A-Za-z0-9]+" required>
-    <input type="time" id="horaire" required>
+    <input type="text" id="numero" placeholder="Numéro de train (ex: EVO5525)" pattern="[A-Za-z0-9]+" required />
+    <input type="time" id="horaire" required />
     <button type="submit">Ajouter</button>
   </form>
 
+  <!-- Bouton pour autoriser son & notifications (obligatoire une fois) -->
+  <div>
+    <button id="enableSound">🔊 Activer son & notifications</button>
+  </div>
+
   <ul id="listeTrains"></ul>
 
+  <!-- Son local hébergé dans /sounds/alarme.mp3 -->
   <audio id="alarme" src="sounds/alarme.mp3" preload="auto" loop></audio>
 
-
-
-
-  <!-- Firebase compat -->
+  <!-- Firebase compat (pour site HTML simple) -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 
   <script>
-    // === Config Firebase (copiée exactement depuis la console Firebase du projet accord-depart-48400) ===
+    // ===== Config Firebase (du projet accord-depart-48400) =====
     const firebaseConfig = {
       apiKey: "AIzaSyCJNVjAS8-hqW6KBcewBzUHXc6gbz1hj9c",
       authDomain: "accord-depart-48400.firebaseapp.com",
@@ -50,28 +55,46 @@
       appId: "1:996894868266:web:1829dd1f375ce99a099453",
       measurementId: "G-J636KCRMFY"
     };
-
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
+    // ===== Références DOM =====
     const jours = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
     const tabs = document.getElementById('joursTabs');
     const liste = document.getElementById('listeTrains');
     const form = document.getElementById('trainForm');
     const alarme = document.getElementById('alarme');
+    const enableBtn = document.getElementById('enableSound');
 
+    // ===== Son & notifications : activation une fois =====
+    let audioReady = false;
+    enableBtn.addEventListener("click", async () => {
+      try {
+        await alarme.play();           // déverrouille l'audio
+        alarme.pause();
+        alarme.currentTime = 0;
+        audioReady = true;
+      } catch(e) {
+        alert("Autorise le son pour ce site dans ton navigateur.");
+      }
+      if ("Notification" in window && Notification.permission !== "granted") {
+        try { await Notification.requestPermission(); } catch(e) {}
+      }
+      enableBtn.style.display = "none";
+    });
+
+    // ===== Jour courant & onglets =====
     function jourCourant() {
       const i = new Date().getDay(); // 0=Dimanche, 1=Lundi...
       return i === 0 ? "Dimanche" : jours[i-1];
     }
     let jourActif = jourCourant();
 
-    // Onglets
     jours.forEach(jour => {
       const tab = document.createElement('div');
       tab.textContent = jour;
       tab.classList.add('tab');
-      if(jour === jourActif) tab.classList.add('active');
+      if (jour === jourActif) tab.classList.add('active');
       tab.onclick = () => { jourActif = jour; majTabs(); afficherTrains(); };
       tabs.appendChild(tab);
     });
@@ -79,11 +102,13 @@
       Array.from(tabs.children).forEach(t => t.classList.toggle('active', t.textContent===jourActif));
     }
 
+    // ===== Helpers =====
     function toTimeValue(hhmm){
       const [h,m] = hhmm.split(':').map(Number);
-      return h*60+m;
+      return h*60 + m;
     }
 
+    // ===== Affichage (tri par timeValue) =====
     async function afficherTrains(){
       liste.innerHTML = "";
       try {
@@ -95,13 +120,13 @@
         snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
         rows.forEach(renderRow);
       } catch(e) {
-        // fallback si pas d'index
+        // fallback si index composite manquant
         const snap = await db.collection("trains").where("jour","==",jourActif).get();
         const rows = [];
         snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
         rows.sort((a,b) => (a.timeValue ?? toTimeValue(a.horaire)) - (b.timeValue ?? toTimeValue(b.horaire)));
         rows.forEach(renderRow);
-        console.warn("⚠️ Si Firestore demande un index, clique sur 'Create index' dans la console Firebase.");
+        console.warn("⚠️ Si Firestore demande un index, clique sur 'Create index' puis recharge.");
       }
     }
 
@@ -125,11 +150,13 @@
       liste.appendChild(li);
     }
 
+    // ===== CRUD =====
     form.addEventListener('submit', async e => {
       e.preventDefault();
       const numero = document.getElementById('numero').value.trim();
       const horaire = document.getElementById('horaire').value;
       if(!numero.match(/^[A-Za-z0-9]+$/) || !horaire) return;
+
       await db.collection("trains").add({
         numero,
         horaire,
@@ -162,34 +189,48 @@
       }
     }
 
+    // ===== Alarmes (même si l'onglet est derrière) =====
     async function checkAlarme(){
       const now = new Date();
       const heureActuelle = now.toTimeString().slice(0,5);
       const jc = jourCourant();
+
       const snap = await db.collection("trains")
         .where("jour","==",jc)
         .where("horaire","==",heureActuelle)
         .get();
+
       snap.forEach(async doc => {
         const t = doc.data();
-       if(!t.triggered){
-  await doc.ref.update({triggered:true});
+        if (!t.triggered) {
+          await doc.ref.update({ triggered: true });
 
-  // Lancer le son en boucle
-  alarme.currentTime = 0;
-  alarme.play();
+          // Démarrer la boucle sonore (même en arrière-plan si audioReady)
+          if (audioReady) {
+            try { alarme.currentTime = 0; await alarme.play(); } catch(e) {}
+          }
 
-  // Popup bloquante → le son continue tant qu'elle est affichée
-  alert(`🚂 Train ${t.numero} (${jc} - ${t.horaire}) !`);
+          const message = `Train ${t.numero} (${jc} - ${t.horaire}) !`;
 
-  // Quand l'utilisateur ferme l'alerte, on coupe le son
-  alarme.pause();
-  alarme.currentTime = 0;
-}
+          // Notification système si autorisée
+          if ("Notification" in window && Notification.permission === "granted") {
+            try {
+              const n = new Notification("🚂 Alarme train", { body: message });
+              n.onclick = () => window.focus();
+            } catch(e) {}
+          }
 
+          // Popup bloquante → le son continue tant qu'elle est ouverte
+          alert(`🚂 ${message}`);
+
+          // À la fermeture de la popup, on coupe la boucle
+          alarme.pause();
+          alarme.currentTime = 0;
+        }
       });
     }
 
+    // Reset des triggers à minuit pile
     async function resetTriggers(){
       const snap = await db.collection("trains").get();
       const batchSize = 300;
@@ -201,7 +242,6 @@
       });
       await batch.commit();
     }
-
     function msUntilMidnight() {
       const now = new Date();
       const tonight = new Date(now);
@@ -209,12 +249,14 @@
       return tonight - now;
     }
 
-    setInterval(checkAlarme, 1000);
+    // Timers
+    setInterval(checkAlarme, 1000); // précision à la minute
     setTimeout(() => {
       resetTriggers();
       setInterval(resetTriggers, 24*60*60*1000);
     }, msUntilMidnight());
 
+    // Premier rendu
     afficherTrains();
   </script>
 </body>
