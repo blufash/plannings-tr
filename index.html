@@ -30,7 +30,8 @@
 
   <ul id="listeTrains"></ul>
 
-  <audio id="alarme" src="sounds/alarme.mp3" preload="auto"></audio>
+  <audio id="alarme" src="sounds/alarme.mp3" preload="auto" loop></audio>
+
 
 
 
@@ -171,11 +172,21 @@
         .get();
       snap.forEach(async doc => {
         const t = doc.data();
-        if(!t.triggered){
-          await doc.ref.update({triggered:true});
-          alarme.play();
-          alert(`🚂 Train ${t.numero} (${jc} - ${t.horaire}) !`);
-        }
+       if(!t.triggered){
+  await doc.ref.update({triggered:true});
+
+  // Lancer le son en boucle
+  alarme.currentTime = 0;
+  alarme.play();
+
+  // Popup bloquante → le son continue tant qu'elle est affichée
+  alert(`🚂 Train ${t.numero} (${jc} - ${t.horaire}) !`);
+
+  // Quand l'utilisateur ferme l'alerte, on coupe le son
+  alarme.pause();
+  alarme.currentTime = 0;
+}
+
       });
     }
 
