@@ -222,7 +222,13 @@
     // purge jour
     (function stampToday(){
       const k="lastVisitDate", now=todayKey(), prev=localStorage.getItem(k);
-      if(prev!==now){ localStorage.setItem(k, now); localStorage.removeItem("rung_"+now); localStorage.removeItem("lastCheckMin_"+now); }
+       if(prev!==now){
+        localStorage.setItem(k, now);
+        if(prev){
+          localStorage.removeItem("rung_"+prev);
+          localStorage.removeItem("lastCheckMin_"+prev);
+        }
+      }
     })();
 
     // ===== LISTE =====
