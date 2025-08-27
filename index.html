@@ -170,7 +170,6 @@ body > footer {
       try {
         fallback.currentTime = 0;
         fallback.loop = true;
-        fallback.addEventListener('ended', () => fallback.play(), { once: false });
         fallback.play();
       } catch(_){}
 
@@ -186,7 +185,12 @@ body > footer {
       if(audioCtx && gainNode){
         gainNode.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.1);
       }
-      try{ fallback.pause(); fallback.currentTime=0; }catch(_){}
+            // stoppe et réinitialise le fallback
+      try{
+        fallback.pause();
+        fallback.currentTime = 0;
+        fallback.loop = false;
+      }catch(_){}
       stopTitleFlash();
     }
 
@@ -351,8 +355,12 @@ body > footer {
 
       // Si l’onglet est visible : acquittement + on coupe
       if(!document.hidden){
-        alert("🚂 "+message);
-        stopAlarmLoop();
+        // la popup bloquante peut empêcher le démarrage audio ;
+        // on la décale légèrement pour laisser la boucle s'amorcer
+        setTimeout(()=>{
+          alert("🚂 "+message);
+          stopAlarmLoop();
+        },100);
       }
 
       // dédup locale
