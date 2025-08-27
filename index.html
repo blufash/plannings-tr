@@ -20,7 +20,7 @@
 </head>
 <body>
 
-  <h1>🚂 Accord départ 🚂 </h1>
+  <h1>🚂 Planning des trains</h1>
 
   <div class="tabs" id="joursTabs"></div>
 
@@ -45,12 +45,12 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 
   <script>
-    // ===== Config Firebase (du projet accord-depart-48400) =====
+    // ===== Config Firebase (projet accord-depart-48400) =====
     const firebaseConfig = {
       apiKey: "AIzaSyCJNVjAS8-hqW6KBcewBzUHXc6gbz1hj9c",
       authDomain: "accord-depart-48400.firebaseapp.com",
       projectId: "accord-depart-48400",
-      storageBucket: "accord-depart-48400.appspot.com", // important: .appspot.com
+      storageBucket: "accord-depart-48400.appspot.com",
       messagingSenderId: "996894868266",
       appId: "1:996894868266:web:1829dd1f375ce99a099453",
       measurementId: "G-J636KCRMFY"
@@ -108,6 +108,17 @@
       return h*60 + m;
     }
 
+    // ===== Mémoire locale (déduplication par navigateur / jour) =====
+    function todayKey() { return new Date().toISOString().slice(0,10); } // YYYY-MM-DD
+    function getRungSet() {
+      const k = "rung_" + todayKey();
+      try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; }
+    }
+    function setRungSet(o) { localStorage.setItem("rung_" + todayKey(), JSON.stringify(o)); }
+    function hasRung(id) { return !!getRungSet()[id]; }
+    function markRung(id) { const s=getRungSet(); s[id]=true; setRungSet(s); }
+    function clearLocalRung(){ localStorage.removeItem("rung_" + todayKey()); }
+
     // ===== Affichage (tri par timeValue) =====
     async function afficherTrains(){
       liste.innerHTML = "";
@@ -161,8 +172,7 @@
         numero,
         horaire,
         jour: jourActif,
-        timeValue: toTimeValue(horaire),
-        triggered: false
+        timeValue: toTimeValue(horaire)
       });
       form.reset();
       afficherTrains();
@@ -175,8 +185,7 @@
         await db.collection("trains").doc(id).update({
           numero: nouveauNumero,
           horaire: nouvelHoraire,
-          timeValue: toTimeValue(nouvelHoraire),
-          triggered: false
+          timeValue: toTimeValue(nouvelHoraire)
         });
         afficherTrains();
       }
@@ -189,7 +198,7 @@
       }
     }
 
-    // ===== Alarmes (même si l'onglet est derrière) =====
+    // ===== Alarmes (fonctionnent en arrière-plan après activation) =====
     async function checkAlarme(){
       const now = new Date();
       const heureActuelle = now.toTimeString().slice(0,5);
@@ -202,46 +211,38 @@
 
       snap.forEach(async doc => {
         const t = doc.data();
-        if (!t.triggered) {
-          await doc.ref.update({ triggered: true });
 
-          // Démarrer la boucle sonore (même en arrière-plan si audioReady)
-          if (audioReady) {
-            try { alarme.currentTime = 0; await alarme.play(); } catch(e) {}
-          }
+        // Déduplication locale : chaque navigateur sonne une fois par train/jour
+        if (hasRung(doc.id)) return;
 
-          const message = `Train ${t.numero} (${jc} - ${t.horaire}) !`;
-
-          // Notification système si autorisée
-          if ("Notification" in window && Notification.permission === "granted") {
-            try {
-              const n = new Notification("🚂 Alarme train", { body: message });
-              n.onclick = () => window.focus();
-            } catch(e) {}
-          }
-
-          // Popup bloquante → le son continue tant qu'elle est ouverte
-          alert(`🚂 ${message}`);
-
-          // À la fermeture de la popup, on coupe la boucle
-          alarme.pause();
-          alarme.currentTime = 0;
+        // Démarrer la boucle sonore même si l’onglet est derrière (après activation)
+        if (audioReady) {
+          try { alarme.currentTime = 0; await alarme.play(); } catch(e) {}
         }
+
+        const message = `Train ${t.numero} (${jc} - ${t.horaire}) !`;
+
+        // Notification système si autorisée
+        if ("Notification" in window && Notification.permission === "granted") {
+          try {
+            const n = new Notification("🚂 Alarme train", { body: message });
+            n.onclick = () => window.focus();
+          } catch (e) {}
+        }
+
+        // Popup bloquante (le son continue tant qu'elle est ouverte)
+        alert(`🚂 ${message}`);
+
+        // À la fermeture de la popup, on coupe la boucle
+        alarme.pause();
+        alarme.currentTime = 0;
+
+        // Marquer comme déjà sonné sur CE navigateur pour aujourd'hui
+        markRung(doc.id);
       });
     }
 
-    // Reset des triggers à minuit pile
-    async function resetTriggers(){
-      const snap = await db.collection("trains").get();
-      const batchSize = 300;
-      let batch = db.batch();
-      let count = 0;
-      snap.forEach(doc => {
-        batch.update(doc.ref,{triggered:false});
-        if(++count % batchSize === 0){ batch.commit(); batch = db.batch(); }
-      });
-      await batch.commit();
-    }
+    // Reset de la mémoire locale à minuit pile
     function msUntilMidnight() {
       const now = new Date();
       const tonight = new Date(now);
@@ -249,11 +250,10 @@
       return tonight - now;
     }
 
-    // Timers
     setInterval(checkAlarme, 1000); // précision à la minute
     setTimeout(() => {
-      resetTriggers();
-      setInterval(resetTriggers, 24*60*60*1000);
+      clearLocalRung();
+      setInterval(clearLocalRung, 24*60*60*1000);
     }, msUntilMidnight());
 
     // Premier rendu
