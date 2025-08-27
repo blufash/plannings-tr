@@ -1,77 +1,159 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <title>Accord Départ</title>
-  <script type="module">
-    // === Import Firebase depuis le CDN ===
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+<script>
+  // === CONFIG COPIÉE DE LA CONSOLE DU PROJET accord-depart-48400 ===
+  const firebaseConfig = {
+    apiKey: "…",
+    authDomain: "accord-depart-48400.firebaseapp.com",
+    projectId: "accord-depart-48400",
+    storageBucket: "accord-depart-48400.appspot.com", // <-- appspot.com
+    messagingSenderId: "…",
+    appId: "…",
+    measurementId: "…"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
 
-    // === Configuration de ton projet (copiée depuis Firebase) ===
-    const firebaseConfig = {
-      apiKey: "AIzaSyD-lFAelCOh-UUAK7S8MsaxDnzekrsUTcQ",
-      authDomain: "accord-depart.firebaseapp.com",
-      projectId: "accord-depart",
-      storageBucket: "accord-depart.firebasestorage.app",
-      messagingSenderId: "972478403471",
-      appId: "1:972478403471:web:e8c2792b526557c03df1fa",
-      measurementId: "G-EBR6WFVC0Y"
-    };
+  const jours = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+  const tabs = document.getElementById('joursTabs');
+  const liste = document.getElementById('listeTrains');
+  const form = document.getElementById('trainForm');
+  const alarme = document.getElementById('alarme');
 
-    // === Initialisation ===
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+  function jourCourant() {
+    const i = new Date().getDay(); // 0=Dimanche, 1=Lundi, ...
+    return i === 0 ? "Dimanche" : jours[i-1];
+  }
+  let jourActif = jourCourant();
 
-    // === Ajouter un accord ===
-    async function addAccord() {
-      const nom = document.getElementById("nom").value;
-      const train = document.getElementById("train").value;
+  // Onglets
+  jours.forEach(jour => {
+    const tab = document.createElement('div');
+    tab.textContent = jour;
+    tab.classList.add('tab');
+    if(jour === jourActif) tab.classList.add('active');
+    tab.onclick = () => { jourActif = jour; majTabs(); afficherTrains(); };
+    tabs.appendChild(tab);
+  });
+  function majTabs(){
+    Array.from(tabs.children).forEach(t => t.classList.toggle('active', t.textContent===jourActif));
+  }
 
-      if (!nom || !train) {
-        alert("Remplis tous les champs !");
-        return;
+  function toTimeValue(hhmm){
+    const [h,m] = hhmm.split(':').map(Number);
+    return h*60+m; // minutes depuis 00:00
+  }
+
+  async function afficherTrains(){
+    liste.innerHTML = "";
+    // tri côté serveur par timeValue (plus fiable que tri lexicographique)
+    const snap = await db.collection("trains")
+      .where("jour","==",jourActif)
+      .orderBy("timeValue")
+      .get();
+
+    snap.forEach(doc => {
+      const t = doc.data();
+      const li = document.createElement('li');
+      li.innerHTML = `<span>Train ${t.numero} - ${t.horaire}</span>`;
+      const actions = document.createElement('div');
+      actions.className="actions";
+
+      const btnEdit = document.createElement('button');
+      btnEdit.textContent="✏️";
+      btnEdit.onclick = () => modifierTrain(doc.id, t);
+
+      const btnDel = document.createElement('button');
+      btnDel.textContent="🗑️";
+      btnDel.onclick = () => supprimerTrain(doc.id);
+
+      actions.appendChild(btnEdit);
+      actions.appendChild(btnDel);
+      li.appendChild(actions);
+      liste.appendChild(li);
+    });
+  }
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const numero = document.getElementById('numero').value.trim();
+    const horaire = document.getElementById('horaire').value;
+    if(!numero.match(/^[A-Za-z0-9]+$/) || !horaire) return;
+
+    await db.collection("trains").add({
+      numero,
+      horaire,
+      jour: jourActif,
+      timeValue: toTimeValue(horaire),
+      triggered: false
+    });
+    form.reset();
+    afficherTrains();
+  });
+
+  async function modifierTrain(id, train){
+    const nouveauNumero = prompt("Nouveau numéro ?", train.numero);
+    const nouvelHoraire = prompt("Nouvel horaire (HH:MM) ?", train.horaire);
+    if(nouveauNumero && /^\d{2}:\d{2}$/.test(nouvelHoraire)){
+      await db.collection("trains").doc(id).update({
+        numero: nouveauNumero,
+        horaire: nouvelHoraire,
+        timeValue: toTimeValue(nouvelHoraire),
+        triggered: false
+      });
+      afficherTrains();
+    }
+  }
+
+  async function supprimerTrain(id){
+    if(confirm("Êtes-vous sûr de vouloir supprimer ce train ?")){
+      await db.collection("trains").doc(id).delete();
+      afficherTrains();
+    }
+  }
+
+  async function checkAlarme(){
+    const now = new Date();
+    const heureActuelle = now.toTimeString().slice(0,5);
+    const jc = jourCourant();
+
+    const snap = await db.collection("trains")
+      .where("jour","==",jc)
+      .where("horaire","==",heureActuelle)
+      .get();
+
+    snap.forEach(async doc => {
+      const t = doc.data();
+      if(!t.triggered){
+        await doc.ref.update({triggered:true});
+        alarme.play();
+        alert(`🚂 Train ${t.numero} (${jc} - ${t.horaire}) !`);
       }
+    });
+  }
 
-      await addDoc(collection(db, "accords"), {
-        nom: nom,
-        train: train,
-        date: new Date().toISOString()
-      });
+  async function resetTriggers(){
+    const snap = await db.collection("trains").get();
+    const batchSize = 300;
+    let batch = db.batch();
+    let count = 0;
+    snap.forEach(doc => {
+      batch.update(doc.ref,{triggered:false});
+      if(++count % batchSize === 0){ batch.commit(); batch = db.batch(); }
+    });
+    await batch.commit();
+  }
 
-      alert("✅ Accord ajouté !");
-      document.getElementById("nom").value = "";
-      document.getElementById("train").value = "";
-      loadAccords();
-    }
+  function msUntilMidnight() {
+    const now = new Date();
+    const tonight = new Date(now);
+    tonight.setHours(24,0,0,0);
+    return tonight - now;
+  }
 
-    // === Charger les accords ===
-    async function loadAccords() {
-      const querySnapshot = await getDocs(collection(db, "accords"));
-      const list = document.getElementById("liste");
-      list.innerHTML = "";
+  setInterval(checkAlarme, 1000);              // précision à la minute
+  setTimeout(() => {
+    resetTriggers();
+    setInterval(resetTriggers, 24*60*60*1000); // tous les jours à minuit
+  }, msUntilMidnight());
 
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const item = document.createElement("li");
-        item.textContent = `${data.nom} - Train ${data.train} (${new Date(data.date).toLocaleString()})`;
-        list.appendChild(item);
-      });
-    }
-
-    // === Au chargement ===
-    window.addAccord = addAccord;
-    window.onload = loadAccords;
-  </script>
-</head>
-<body>
-  <h1>🚂 Accord Départ</h1>
-
-  <input id="nom" type="text" placeholder="Ton nom" />
-  <input id="train" type="text" placeholder="Numéro de train" />
-  <button onclick="addAccord()">Ajouter</button>
-
-  <h2>📋 Liste des accords</h2>
-  <ul id="liste"></ul>
-</body>
-</html>
+  afficherTrains();
+</script>
