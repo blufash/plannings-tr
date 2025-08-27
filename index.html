@@ -370,9 +370,12 @@ body > footer {
 
     // Init
     (function init(){ majTabs(); afficherTrains(); checkAlarme(); })();
+
+    document.getElementById('year').textContent = new Date().getFullYear();
+
   </script>
 <footer>
-  © 2025 — Accord Départ — Conception et droits réservés par Maxime Foerster — Usage interne au PCD de Lutterbach.
+  © <span id="year"></span> — Accord Départ — Conception et droits réservés par Maxime Foerster — Usage interne au PCD de Lutterbach.
   Toute reproduction ou diffusion non autorisée est interdite.
 </footer>
 
