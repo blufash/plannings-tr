@@ -33,12 +33,12 @@
     <button type="submit">Ajouter</button>
   </form>
 
-  <!-- Bouton d’activation (à cliquer une fois par poste) -->
+  <!-- Bouton d’activation (obligatoire une fois / poste) -->
   <div><button id="enableSound">🔊 Activer son & notifications</button></div>
 
   <ul id="listeTrains"></ul>
 
-  <!-- Fallback audio local (mettez votre fichier dans /sounds/alarme.mp3) -->
+  <!-- Fallback audio local (place ton fichier ici) -->
   <audio id="fallbackAlarm" src="sounds/alarme.mp3" preload="auto" loop style="display:none"></audio>
 
   <!-- Firebase compat -->
@@ -66,11 +66,11 @@
     const form = document.getElementById('trainForm');
     const enableBtn = document.getElementById('enableSound');
     const fallback = document.getElementById('fallbackAlarm');
-    const CATCHUP_MINUTES = 3; // fenêtre de rattrapage max si onglet "dort"
+    const CATCHUP_MINUTES = 3; // rattrapage max si onglet "dort"
 
-    // ===== AUDIO: WebAudio + fallback <audio> =====
-    let audioCtx=null,gainNode=null,loopTimer=null,audioReady=false;
-    let baseTitle=document.title,titleTimer=null;
+    // ===== AUDIO: WebAudio (buffer loop) + fallback <audio> =====
+    let audioCtx=null, gainNode=null, loopSource=null, audioReady=false;
+    let baseTitle=document.title, titleTimer=null;
 
     function ensureAudio(){
       if(!audioCtx){
@@ -83,63 +83,91 @@
       if(audioCtx.state==="suspended") audioCtx.resume();
     }
 
+    // génère un buffer 2.0s "ding-dong" agréable, bouclable
+    function makeDingDongBuffer(ctx){
+      const sr = ctx.sampleRate;
+      const dur = 2.0; // secondes
+      const N = Math.floor(sr*dur);
+      const buf = ctx.createBuffer(1, N, sr);
+      const ch = buf.getChannelData(0);
+
+      // fenêtres (enveloppes)
+      function env(t, attack, release, length){
+        if(t<attack) return t/attack;
+        if(t>length-release) return Math.max(0,(length - t)/release);
+        return 1;
+      }
+
+      // DING (1kHz) de 0.0s à 0.45s
+      const dingLen = 0.45, dingA=0.02, dingR=0.25, dingF=1000;
+      // DONG (400Hz) de 0.5s à 1.2s
+      const dongStart = 0.5, dongLen=0.7, dongA=0.02, dongR=0.35, dongF=400;
+
+      for(let i=0;i<N;i++){
+        const t = i/sr;
+
+        let v = 0;
+
+        // ding
+        if(t<=dingLen){
+          const e = env(t, dingA, dingR, dingLen);
+          v += Math.sin(2*Math.PI*dingF*t) * 0.30 * e;
+        }
+
+        // dong
+        const td = t - dongStart;
+        if(td>=0 && td<=dongLen){
+          const e2 = env(td, dongA, dongR, dongLen);
+          v += Math.sin(2*Math.PI*dongF*td) * 0.35 * e2;
+        }
+
+        ch[i] = v;
+      }
+      return buf;
+    }
+
     function startTitleFlash(){
       if(titleTimer) return;
       let on=false;
-      titleTimer = setInterval(()=>{ on=!on; document.title = on?("🔶 ALERTE — "+baseTitle):baseTitle; },700);
+      titleTimer = setInterval(()=>{ on=!on; document.title = on?("🔶 ALERTE — "+baseTitle):baseTitle; }, 700);
     }
     function stopTitleFlash(){
       if(titleTimer){ clearInterval(titleTimer); titleTimer=null; }
       document.title = baseTitle;
     }
 
-    // Ding-dong agréable en boucle + fallback mp3
     function startAlarmLoop(){
       ensureAudio();
       stopAlarmLoop(); // sécurité
 
-      function playDingDong(){
-        const t = audioCtx.currentTime;
+      // 1) WebAudio: une seule source qui LOOP le buffer (indépendant des timers)
+      const buf = makeDingDongBuffer(audioCtx);
+      loopSource = audioCtx.createBufferSource();
+      loopSource.buffer = buf;
+      loopSource.loop = true;
+      loopSource.connect(gainNode);
+      loopSource.start();
 
-        // DING (aigu)
-        const o1 = audioCtx.createOscillator();
-        const g1 = audioCtx.createGain();
-        o1.type="sine"; o1.frequency.value=1000;
-        o1.connect(g1); g1.connect(gainNode);
-        g1.gain.setValueAtTime(0, t);
-        g1.gain.linearRampToValueAtTime(0.30, t+0.02);
-        g1.gain.exponentialRampToValueAtTime(0.0001, t+0.45);
-        o1.start(t); o1.stop(t+0.5);
-
-        // DONG (grave, +0.5s)
-        const o2 = audioCtx.createOscillator();
-        const g2 = audioCtx.createGain();
-        o2.type="sine"; o2.frequency.value=400;
-        o2.connect(g2); g2.connect(gainNode);
-        g2.gain.setValueAtTime(0, t+0.5);
-        g2.gain.linearRampToValueAtTime(0.35, t+0.52);
-        g2.gain.exponentialRampToValueAtTime(0.0001, t+1.1);
-        o2.start(t+0.5); o2.stop(t+1.2);
-      }
-
-      // 1) WebAudio en boucle
-      playDingDong();
-      loopTimer = setInterval(playDingDong, 2000);
+      // fade-in
       gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
       gainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.05);
 
-      // 2) Fallback mp3 (si WebAudio est suspendu en arrière-plan)
+      // 2) Fallback mp3 en parallèle (si une policy bloque WebAudio en arrière-plan)
       try { fallback.currentTime = 0; fallback.play(); } catch(_){}
 
       startTitleFlash();
     }
 
     function stopAlarmLoop(){
-      if(loopTimer){ clearInterval(loopTimer); loopTimer=null; }
+      if(loopSource){
+        try{ loopSource.stop(); }catch(_){}
+        try{ loopSource.disconnect(); }catch(_){}
+        loopSource=null;
+      }
       if(audioCtx && gainNode){
         gainNode.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.1);
       }
-      try { fallback.pause(); fallback.currentTime = 0; } catch(_){}
+      try{ fallback.pause(); fallback.currentTime=0; }catch(_){}
       stopTitleFlash();
     }
 
@@ -147,15 +175,13 @@
     enableBtn.addEventListener("click", async ()=>{
       ensureAudio();
       try{
-        // micro bip inaudible (déverrouillage WebAudio)
+        // micro bip inaudible pour déverrouiller
         const o = audioCtx.createOscillator(), g = audioCtx.createGain();
         o.type="sine"; o.frequency.value=440; g.gain.value=0.0001;
         o.connect(g); g.connect(audioCtx.destination);
         const t = audioCtx.currentTime; o.start(t); o.stop(t+0.05);
 
-        // déverrouille aussi l'élément audio fallback
-        await fallback.play();
-        fallback.pause(); fallback.currentTime = 0;
+        await fallback.play(); fallback.pause(); fallback.currentTime = 0;
 
         audioReady = true;
       }catch(e){
@@ -184,12 +210,12 @@
     // ===== Helpers & mémoire locale =====
     function toTimeValue(hhmm){ const [h,m]=hhmm.split(':').map(Number); return h*60+m; }
     function todayKey(){ return new Date().toISOString().slice(0,10); } // YYYY-MM-DD
-    // dédup locale par jour
+    // dédup locale
     function getRungSet(){ const k="rung_"+todayKey(); try{return JSON.parse(localStorage.getItem(k))||{}}catch{return{}} }
     function setRungSet(o){ localStorage.setItem("rung_"+todayKey(), JSON.stringify(o)); }
     function hasRung(id){ return !!getRungSet()[id]; }
     function markRung(id){ const s=getRungSet(); s[id]=true; setRungSet(s); }
-    // rattrapage : minute déjà traitée
+    // rattrapage
     function lastCheckKey(){ return "lastCheckMin_"+todayKey(); }
     function getLastCheckedMinute(){ const v=localStorage.getItem(lastCheckKey()); return v?parseInt(v,10):null; }
     function setLastCheckedMinute(min){ localStorage.setItem(lastCheckKey(), String(min)); }
@@ -247,13 +273,14 @@
     }
 
     // ===== ALARMES =====
+    const CATCHUP = CATCHUP_MINUTES;
     async function checkAlarme(){
       const now=new Date();
       const nowMin=now.getHours()*60 + now.getMinutes();
       const jc=jourCourant();
 
       const last=getLastCheckedMinute();
-      const leftBound=Math.max(0, nowMin - CATCHUP_MINUTES);
+      const leftBound=Math.max(0, nowMin - CATCHUP);
       const startMin=(last===null)? leftBound : Math.min(nowMin, Math.max(last+1, leftBound));
       if(startMin>nowMin){ setLastCheckedMinute(nowMin); return; }
 
@@ -282,7 +309,7 @@
     async function triggerAlarmOnce(docId,t,jc){
       if(hasRung(docId)) return;
 
-      // tente toujours de démarrer la boucle sonore (WebAudio + fallback)
+      // démarre la boucle (WebAudio loop + fallback)
       try{ startAlarmLoop(); }catch(_){}
 
       const message=`Train ${t.numero} (${jc} - ${t.horaire}) !`;
@@ -297,28 +324,27 @@
         }catch(_){}
       }
 
-      // Si l’onglet est visible, on acquitte par alert et on coupe le son
+      // Si l’onglet est visible : acquittement + on coupe
       if(!document.hidden){
         alert("🚂 "+message);
         stopAlarmLoop();
       }
-      // Si onglet caché : ça sonne + notif jusqu’à ce qu’on revienne
 
+      // dédup locale
       markRung(docId);
     }
 
-    // Quand on revient sur l’onglet: coupe si ça sonne et recheck
     document.addEventListener("visibilitychange", ()=>{
       if(!document.hidden){
-        if(loopTimer) stopAlarmLoop();
+        // si ça sonnait, coupe et recheck
+        if(loopSource) stopAlarmLoop();
         checkAlarme();
       }
     });
 
-    // Tick (si l’onglet est ralenti, le rattrapage compense)
     setInterval(checkAlarme, 1000);
 
-    // Initialisation
+    // Init
     (function init(){ majTabs(); afficherTrains(); checkAlarme(); })();
   </script>
 </body>
