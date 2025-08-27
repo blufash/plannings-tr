@@ -1,175 +1,77 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8">
-<title>Planning Trains</title>
-<style>
-body { font-family: Arial, sans-serif; background:#f4f6f9; color:#333; text-align:center; padding:20px; }
-h1 { color:#0077cc; }
-.tabs { margin:20px 0; }
-.tab { display:inline-block; margin:5px; padding:10px 15px; background:#ddd; border-radius:5px; cursor:pointer; }
-.tab.active { background:#0077cc; color:#fff; }
-form { margin:15px 0; background:#fff; padding:10px; border-radius:8px; display:inline-block; }
-input, button { padding:7px; margin:5px; border-radius:5px; border:1px solid #ccc; }
-ul { list-style:none; padding:0; }
-li { background:#fff; margin:5px auto; padding:10px; border-radius:6px; width:320px; box-shadow:0 0 4px rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center; }
-.actions button { margin-left:5px; }
-</style>
+  <meta charset="UTF-8" />
+  <title>Accord Départ</title>
+  <script type="module">
+    // === Import Firebase depuis le CDN ===
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // === Configuration de ton projet (copiée depuis Firebase) ===
+    const firebaseConfig = {
+      apiKey: "AIzaSyD-lFAelCOh-UUAK7S8MsaxDnzekrsUTcQ",
+      authDomain: "accord-depart.firebaseapp.com",
+      projectId: "accord-depart",
+      storageBucket: "accord-depart.firebasestorage.app",
+      messagingSenderId: "972478403471",
+      appId: "1:972478403471:web:e8c2792b526557c03df1fa",
+      measurementId: "G-EBR6WFVC0Y"
+    };
+
+    // === Initialisation ===
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // === Ajouter un accord ===
+    async function addAccord() {
+      const nom = document.getElementById("nom").value;
+      const train = document.getElementById("train").value;
+
+      if (!nom || !train) {
+        alert("Remplis tous les champs !");
+        return;
+      }
+
+      await addDoc(collection(db, "accords"), {
+        nom: nom,
+        train: train,
+        date: new Date().toISOString()
+      });
+
+      alert("✅ Accord ajouté !");
+      document.getElementById("nom").value = "";
+      document.getElementById("train").value = "";
+      loadAccords();
+    }
+
+    // === Charger les accords ===
+    async function loadAccords() {
+      const querySnapshot = await getDocs(collection(db, "accords"));
+      const list = document.getElementById("liste");
+      list.innerHTML = "";
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const item = document.createElement("li");
+        item.textContent = `${data.nom} - Train ${data.train} (${new Date(data.date).toLocaleString()})`;
+        list.appendChild(item);
+      });
+    }
+
+    // === Au chargement ===
+    window.addAccord = addAccord;
+    window.onload = loadAccords;
+  </script>
 </head>
 <body>
+  <h1>🚂 Accord Départ</h1>
 
-<h1>🚂 Planning des trains</h1>
+  <input id="nom" type="text" placeholder="Ton nom" />
+  <input id="train" type="text" placeholder="Numéro de train" />
+  <button onclick="addAccord()">Ajouter</button>
 
-<div class="tabs" id="joursTabs"></div>
-
-<form id="trainForm">
-  <input type="text" id="numero" placeholder="Numéro de train (ex: EVO5525)" pattern="[A-Za-z0-9]+" required>
-  <input type="time" id="horaire" required>
-  <button type="submit">Ajouter</button>
-</form>
-
-<ul id="listeTrains"></ul>
-
-<audio id="alarme" src="https://www.soundjay.com/buttons/sounds/beep-07.mp3" preload="auto"></audio>
-
-<!-- Firebase -->
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-
-<script>
-  // Config Firebase
-  const firebaseConfig = {
-      apiKey: "AIzaSyCJNVjAS8-hqW6KBcewBzUHXc6gbz1hj9c",
-	  authDomain: "accord-depart-48400.firebaseapp.com",
-	  projectId: "accord-depart-48400",
-	  storageBucket: "accord-depart-48400.firebasestorage.app",
-	  messagingSenderId: "996894868266",
-	  appId: "1:996894868266:web:1829dd1f375ce99a099453",
-	  measurementId: "G-J636KCRMFY"
-  };
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
-
-  const jours = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
-  const tabs = document.getElementById('joursTabs');
-  const liste = document.getElementById('listeTrains');
-  const form = document.getElementById('trainForm');
-  const alarme = document.getElementById('alarme');
-
-  let jourActif = jours[new Date().getDay()-1] || "Dimanche"; 
-
-  // Onglets
-  jours.forEach(jour => {
-    const tab = document.createElement('div');
-    tab.textContent = jour;
-    tab.classList.add('tab');
-    if(jour === jourActif) tab.classList.add('active');
-    tab.onclick = () => { jourActif = jour; majTabs(); afficherTrains(); };
-    tabs.appendChild(tab);
-  });
-
-  function majTabs(){
-    Array.from(tabs.children).forEach(t => {
-      t.classList.toggle('active', t.textContent===jourActif);
-    });
-  }
-
-  function afficherTrains(){
-    liste.innerHTML = "";
-    db.collection("trains")
-      .where("jour", "==", jourActif)
-      .orderBy("horaire")
-      .get()
-      .then(snapshot => {
-        snapshot.forEach(doc => {
-          const t = doc.data();
-          const li = document.createElement('li');
-          li.innerHTML = `<span>Train ${t.numero} - ${t.horaire}</span>`;
-          const actions = document.createElement('div');
-          actions.className="actions";
-
-          const btnEdit = document.createElement('button');
-          btnEdit.textContent="✏️";
-          btnEdit.onclick = () => modifierTrain(doc.id, t);
-
-          const btnDel = document.createElement('button');
-          btnDel.textContent="🗑️";
-          btnDel.onclick = () => supprimerTrain(doc.id);
-
-          actions.appendChild(btnEdit);
-          actions.appendChild(btnDel);
-          li.appendChild(actions);
-          liste.appendChild(li);
-        });
-      });
-  }
-
-  form.addEventListener('submit', e => {
-    e.preventDefault();
-    const numero = document.getElementById('numero').value.trim();
-    const horaire = document.getElementById('horaire').value;
-
-    if(!numero.match(/^[A-Za-z0-9]+$/) || !horaire) return;
-
-    db.collection("trains").add({
-      numero,
-      horaire,
-      jour: jourActif,
-      triggered: false
-    }).then(() => {
-      afficherTrains();
-      form.reset();
-    });
-  });
-
-  function modifierTrain(id, train){
-    const nouveauNumero = prompt("Nouveau numéro ?", train.numero);
-    const nouvelHoraire = prompt("Nouvel horaire (HH:MM) ?", train.horaire);
-    if(nouveauNumero && nouvelHoraire.match(/^\d{2}:\d{2}$/)){
-      db.collection("trains").doc(id).update({
-        numero: nouveauNumero,
-        horaire: nouvelHoraire,
-        triggered: false
-      }).then(() => afficherTrains());
-    }
-  }
-
-  function supprimerTrain(id){
-    if(confirm("Êtes-vous sûr de vouloir supprimer ce train ?")){
-      db.collection("trains").doc(id).delete().then(() => afficherTrains());
-    }
-  }
-
-  function checkAlarme(){
-    const now = new Date();
-    const heureActuelle = now.toTimeString().slice(0,5);
-    const jourCourant = jours[now.getDay()-1] || "Dimanche";
-
-    db.collection("trains")
-      .where("jour", "==", jourCourant)
-      .get()
-      .then(snapshot => {
-        snapshot.forEach(doc => {
-          const t = doc.data();
-          if(t.horaire === heureActuelle && !t.triggered){
-            doc.ref.update({triggered:true});
-            alarme.play();
-            alert(`🚂 Train ${t.numero} (${jourCourant} - ${t.horaire}) !`);
-          }
-        });
-      });
-  }
-
-  function resetTriggers(){
-    db.collection("trains").get().then(snapshot => {
-      snapshot.forEach(doc => doc.ref.update({triggered:false}));
-    });
-  }
-
-  setInterval(checkAlarme, 1000);
-  setInterval(resetTriggers, 24*60*60*1000);
-
-  afficherTrains();
-</script>
+  <h2>📋 Liste des accords</h2>
+  <ul id="liste"></ul>
 </body>
 </html>
