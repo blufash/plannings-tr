@@ -20,19 +20,23 @@
     li{background:#fff;margin:6px auto;padding:10px;border-radius:8px;width:min(420px,92%);box-shadow:var(--shadow);display:flex;justify-content:space-between;align-items:center}
     .actions button{margin-left:6px}
 
-html, body {
-  height: 100%;              /* body prend toute la hauteur de la fenêtre */
+/* Footer collé en bas */
+body {
+  min-height: 100vh;        /* prend toute la hauteur de l'écran */
   display: flex;
-  flex-direction: column;    /* organise le contenu en colonne */
+  flex-direction: column;   /* contenu en colonne */
 }
-
+#page {
+  flex: 1;                  /* prend tout l'espace restant */
+}
 body > footer {
-  margin-top: auto;          /* pousse le footer au maximum vers le bas */
+  margin-top: auto;         /* pousse le footer en bas */
   background: #f4f4f4;
   color: #777;
   font-size: 12px;
   padding: 6px 0;
 }
+
 
   </style>
 </head>
