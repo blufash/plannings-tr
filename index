@@ -39,13 +39,13 @@ li { background:#fff; margin:5px auto; padding:10px; border-radius:6px; width:32
 <script>
   // Config Firebase
   const firebaseConfig = {
-    apiKey: "AIzaSyD-lFAelCOh-UUAK7S8MsaxDnzekrsUTcQ",
-    authDomain: "accord-depart.firebaseapp.com",
-    projectId: "accord-depart",
-    storageBucket: "accord-depart.appspot.com",
-    messagingSenderId: "972478403471",
-    appId: "1:972478403471:web:e8c2792b526557c03df1fa",
-    measurementId: "G-EBR6WFVC0Y"
+      apiKey: "AIzaSyCJNVjAS8-hqW6KBcewBzUHXc6gbz1hj9c",
+	  authDomain: "accord-depart-48400.firebaseapp.com",
+	  projectId: "accord-depart-48400",
+	  storageBucket: "accord-depart-48400.firebasestorage.app",
+	  messagingSenderId: "996894868266",
+	  appId: "1:996894868266:web:1829dd1f375ce99a099453",
+	  measurementId: "G-J636KCRMFY"
   };
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
