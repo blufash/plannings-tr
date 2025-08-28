@@ -5,60 +5,68 @@
   <title>Accord Départ</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root{
-      --bg:#f4f6f9;--fg:#333;--brand:#0077cc;--card:#fff;--muted:#ddd;--shadow:0 0 4px rgba(0,0,0,.08);
+    :root { --bg:#f4f6f9; --fg:#333; --brand:#0077cc; --card:#fff; --muted:#ddd; --shadow:0 0 4px rgba(0,0,0,.08); }
+
+    /* layout */
+    body{
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg); color: var(--fg);
+      text-align: center; padding: 20px;
+      min-height: 100vh; display: flex; flex-direction: column;
     }
-    body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--fg);text-align:center;padding:20px;min-height:100vh;display:flex;flex-direction:column;}
-    h1{color:var(--brand);margin:0 0 14px;display:flex;gap:10px;align-items:center;justify-content:center}
-    .tabs{margin:14px 0;}
-    .tab{display:inline-block;margin:4px;padding:8px 12px;background:var(--muted);border-radius:7px;cursor:pointer;user-select:none;}
-    .tab.active{background:var(--brand);color:#fff}
-        form{margin:12px 0;background:var(--card);padding:10px;border-radius:10px;display:inline-flex;gap:8px;align-items:center;box-shadow:var(--shadow);justify-content:center;align-self:center}
-    input,button{padding:8px 10px;border-radius:7px;border:1px solid #ccc}
-    #enableSound{background:#ffe8b3;border-color:#e6c779}
-    ul{list-style:none;padding:0;margin-top:12px}
-    li{background:#fff;margin:6px auto;padding:10px;border-radius:8px;width:min(420px,92%);box-shadow:var(--shadow);display:flex;justify-content:space-between;align-items:center}
-    .actions button{margin-left:6px}
 
+    h1{ color: var(--brand); margin: 0 0 14px; display:flex; gap:10px; align-items:center; justify-content:center; }
+    .tabs{ margin:14px 0; }
+    .tab{ display:inline-block; margin:4px; padding:8px 12px; background:var(--muted); border-radius:7px; cursor:pointer; user-select:none; }
+    .tab.active{ background:var(--brand); color:#fff; }
 
-body > footer {
-  margin-top: auto;         /* pousse le footer en bas */
-  background: #f4f4f4;
-  color: #777;
-  font-size: 12px;
-  padding: 32px 0 6px;      /* espace au-dessus + padding bas */
-  text-align: center;
-}
+    form{
+      margin:12px 0; background:var(--card); padding:10px; border-radius:10px;
+      display:inline-flex; gap:8px; align-items:center; justify-content:center; align-self:center;
+      box-shadow:var(--shadow);
+    }
+    input,button{ padding:8px 10px; border-radius:7px; border:1px solid #ccc; }
+    #enableSound{ background:#ffe8b3; border-color:#e6c779; }
 
+    ul{ list-style:none; padding:0; margin-top:12px; }
+    li{
+      background:#fff; margin:6px auto; padding:10px; border-radius:8px; width:min(420px,92%);
+      display:flex; justify-content:space-between; align-items:center; box-shadow:var(--shadow);
+    }
+    .actions button{ margin-left:6px; }
 
+    /* footer */
+    body > footer{
+      margin-top:auto; background:#f4f4f4; color:#777; font-size:12px;
+      padding:8px 0; text-align:center; border-top:1px solid #eee;
+    }
   </style>
 </head>
 <body>
 
   <h1>🚂 Accord Départ 🚂</h1>
 
-  <div class="tabs" id="joursTabs"></div>
+  <div class="tabs" id="tabs"></div>
 
-  <form id="trainForm">
-    <input type="text" id="numero" placeholder="Numéro de train (ex: EVO5525)" pattern="[A-Za-z0-9]+" required />
-    <input type="time" id="horaire" required />
+  <form id="f">
+    <input id="num" type="text" placeholder="Numéro de train (ex: EVO5525)" pattern="[A-Za-z0-9]+" required />
+    <input id="time" type="time" required />
     <button type="submit">Ajouter</button>
   </form>
 
-  <!-- Bouton d’activation (obligatoire une fois / poste) -->
   <div><button id="enableSound">🔊 Activer son & notifications</button></div>
 
-  <ul id="listeTrains"></ul>
+  <ul id="list"></ul>
 
-  <!-- Fallback audio local (place ton fichier ici) -->
-  <audio id="fallbackAlarm" src="sounds/alarme.mp3" preload="auto" loop style="display:none"></audio>
+  <!-- son de secours (mp3 local) -->
+  <audio id="beepFile" src="sounds/alarme.mp3" preload="auto" loop style="display:none"></audio>
 
   <!-- Firebase compat -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 
   <script>
-    // ===== CONFIG FIREBASE =====
+    // --- Firebase ---
     const firebaseConfig = {
       apiKey: "AIzaSyCJNVjAS8-hqW6KBcewBzUHXc6gbz1hj9c",
       authDomain: "accord-depart-48400.firebaseapp.com",
@@ -71,322 +79,261 @@ body > footer {
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    // ===== CONSTANTES & REFS =====
-    const jours = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
-    const tabs = document.getElementById('joursTabs');
-    const liste = document.getElementById('listeTrains');
-    const form = document.getElementById('trainForm');
-    const enableBtn = document.getElementById('enableSound');
-    const fallback = document.getElementById('fallbackAlarm');
-    const CATCHUP_MINUTES = 3; // rattrapage max si onglet "dort"
+    // --- DOM ---
+    const tabsEl  = document.getElementById('tabs');
+    const listEl  = document.getElementById('list');
+    const form    = document.getElementById('f');
+    const inNum   = document.getElementById('num');
+    const inTime  = document.getElementById('time');
+    const btnEn   = document.getElementById('enableSound');
+    const beepTag = document.getElementById('beepFile');
 
-    // ===== AUDIO: WebAudio (buffer loop) + fallback <audio> =====
-    let audioCtx=null, gainNode=null, loopSource=null, audioReady=false;
+    // --- const ---
+    const jours = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+    const CATCHUP_MIN = 3; // rattrapage si l’onglet a “dormi”
+
+    // --- Audio (WebAudio loop + fallback <audio>) ---
+    let ctx=null, gain=null, loopSrc=null, audioOk=false;
     let baseTitle=document.title, titleTimer=null;
 
-    function ensureAudio(){
-      if(!audioCtx){
-        const AC = window.AudioContext||window.webkitAudioContext;
-        audioCtx = new AC();
-        gainNode = audioCtx.createGain();
-        gainNode.connect(audioCtx.destination);
-        gainNode.gain.value = 0.0;
+    function useAudio(){
+      if(!ctx){
+        const AC = window.AudioContext || window.webkitAudioContext;
+        ctx = new AC();
+        gain = ctx.createGain(); gain.connect(ctx.destination); gain.gain.value = 0;
       }
-      if(audioCtx.state==="suspended") audioCtx.resume();
+      if(ctx.state === "suspended") ctx.resume();
+      return ctx;
     }
 
-    // génère un buffer 2.0s "ding-dong" agréable, bouclable
-    function makeDingDongBuffer(ctx){
-      const sr = ctx.sampleRate;
-      const dur = 2.0; // secondes
-      const N = Math.floor(sr*dur);
-      const buf = ctx.createBuffer(1, N, sr);
-      const ch = buf.getChannelData(0);
+    // buffer 2s “ding-dong” (pas de setInterval → fiable en arrière-plan)
+    function mkDingDong(c){
+      const sr=c.sampleRate, dur=2, N=sr*dur|0;
+      const b=c.createBuffer(1,N,sr), ch=b.getChannelData(0);
 
-      // fenêtres (enveloppes)
-      function env(t, attack, release, length){
-        if(t<attack) return t/attack;
-        if(t>length-release) return Math.max(0,(length - t)/release);
-        return 1;
-      }
+      const env=(t,a,r,L)=> t<a? t/a : t>(L-r)? (L-t)/r : 1;
 
-      // DING (1kHz) de 0.0s à 0.45s
-      const dingLen = 0.45, dingA=0.02, dingR=0.25, dingF=1000;
-      // DONG (400Hz) de 0.5s à 1.2s
-      const dongStart = 0.5, dongLen=0.7, dongA=0.02, dongR=0.35, dongF=400;
+      // ding : 0→0.45s @1kHz | dong : 0.5→1.2s @400Hz
+      const dLen=0.45, dA=0.02, dR=0.25, dF=1000;
+      const gOff=0.5, gLen=0.7, gA=0.02, gR=0.35, gF=400;
 
       for(let i=0;i<N;i++){
-        const t = i/sr;
-
-        let v = 0;
-
-        // ding
-        if(t<=dingLen){
-          const e = env(t, dingA, dingR, dingLen);
-          v += Math.sin(2*Math.PI*dingF*t) * 0.30 * e;
-        }
-
-        // dong
-        const td = t - dongStart;
-        if(td>=0 && td<=dongLen){
-          const e2 = env(td, dongA, dongR, dongLen);
-          v += Math.sin(2*Math.PI*dongF*td) * 0.35 * e2;
-        }
-
-        ch[i] = v;
+        const t=i/sr;
+        let v=0;
+        if(t<=dLen) v += Math.sin(2*Math.PI*dF*t)*0.30*env(t,dA,dR,dLen);
+        const td=t-gOff;
+        if(td>=0 && td<=gLen) v += Math.sin(2*Math.PI*gF*td)*0.35*env(td,gA,gR,gLen);
+        ch[i]=v;
       }
-      return buf;
+      return b;
     }
 
-    function startTitleFlash(){
-      if(titleTimer) return;
-      let on=false;
-      titleTimer = setInterval(()=>{ on=!on; document.title = on?("🔶 ALERTE — "+baseTitle):baseTitle; }, 700);
-    }
-    function stopTitleFlash(){
-      if(titleTimer){ clearInterval(titleTimer); titleTimer=null; }
-      document.title = baseTitle;
-    }
+    function startLoop(){
+      useAudio();
+      stopLoop();
 
-    function startAlarmLoop(){
-      ensureAudio();
-      stopAlarmLoop(); // sécurité
+      const buf = mkDingDong(ctx);
+      loopSrc = ctx.createBufferSource();
+      loopSrc.buffer = buf;
+      loopSrc.loop   = true;
+      loopSrc.connect(gain);
+      loopSrc.start();
 
-      // 1) WebAudio: une seule source qui LOOP le buffer (indépendant des timers)
-      const buf = makeDingDongBuffer(audioCtx);
-      loopSource = audioCtx.createBufferSource();
-      loopSource.buffer = buf;
-      loopSource.loopStart = 0;
-      loopSource.loopEnd   = buf.duration;
-      loopSource.loop = true;
-      loopSource.connect(gainNode);
-      loopSource.start();
+      gain.gain.cancelScheduledValues(ctx.currentTime);
+      gain.gain.setTargetAtTime(1, ctx.currentTime, 0.05);
 
-      // fade-in
-      gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-      gainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.05);
+      try { beepTag.currentTime=0; beepTag.loop=true; beepTag.play(); } catch(_){}
 
-      // 2) Fallback mp3 en parallèle (si une policy bloque WebAudio en arrière-plan)
-      try {
-        fallback.currentTime = 0;
-        fallback.loop = true;
-        fallback.play();
-      } catch(_){}
-
-      startTitleFlash();
-    }
-
-    function stopAlarmLoop(){
-      if(loopSource){
-        try{ loopSource.stop(); }catch(_){}
-        try{ loopSource.disconnect(); }catch(_){}
-        loopSource=null;
+      if(!titleTimer){
+        titleTimer = setInterval(()=> {
+          document.title = (document.title === baseTitle) ? ("🔶 ALERTE — " + baseTitle) : baseTitle;
+        }, 700);
       }
-      if(audioCtx && gainNode){
-        gainNode.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.1);
-      }
-            // stoppe et réinitialise le fallback
+    }
+
+    function stopLoop(){
+      if(loopSrc){ try{loopSrc.stop();}catch{} try{loopSrc.disconnect();}catch{} loopSrc=null; }
+      if(ctx && gain) gain.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
+      try{ beepTag.pause(); beepTag.currentTime=0; beepTag.loop=false; }catch{}
+      if(titleTimer){ clearInterval(titleTimer); titleTimer=null; document.title=baseTitle; }
+    }
+
+    btnEn.addEventListener('click', async () => {
+      useAudio();
       try{
-        fallback.pause();
-        fallback.currentTime = 0;
-        fallback.loop = false;
-      }catch(_){}
-      stopTitleFlash();
-    }
-
-    // Activation unique : débloque WebAudio + <audio>, demande notifications
-    enableBtn.addEventListener("click", async ()=>{
-      ensureAudio();
-      try{
-        // micro bip inaudible pour déverrouiller
-        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        // petit “click” pour débloquer l’audio
+        const o=ctx.createOscillator(), g=ctx.createGain();
         o.type="sine"; o.frequency.value=440; g.gain.value=0.0001;
-        o.connect(g); g.connect(audioCtx.destination);
-        const t = audioCtx.currentTime; o.start(t); o.stop(t+0.05);
+        o.connect(g); g.connect(ctx.destination);
+        const t=ctx.currentTime; o.start(t); o.stop(t+0.05);
 
-        await fallback.play(); fallback.pause(); fallback.currentTime = 0;
-
-        audioReady = true;
-      }catch(e){
+        await beepTag.play(); beepTag.pause(); beepTag.currentTime=0;
+        audioOk = true;
+      }catch{
         alert("Autorise le son pour ce site dans ton navigateur.");
       }
       if("Notification" in window && Notification.permission!=="granted"){
-        try{ await Notification.requestPermission(); }catch(e){}
+        try{ await Notification.requestPermission(); }catch{}
       }
-      enableBtn.style.display="none";
+      btnEn.style.display="none";
     });
 
-    // ===== ONGLET & UI =====
-    function jourCourant(){ const i=new Date().getDay(); return i===0?"Dimanche":jours[i-1]; }
-    let jourActif = jourCourant();
-
-    jours.forEach(jour=>{
-      const tab=document.createElement('div');
-      tab.textContent=jour; tab.className="tab"+(jour===jourActif?" active":"");
-      tab.onclick=()=>{ jourActif=jour; majTabs(); afficherTrains(); };
-      tabs.appendChild(tab);
-    });
-    function majTabs(){
-      [...tabs.children].forEach(t=>t.classList.toggle('active', t.textContent===jourActif));
+    // --- Jours + UI ---
+    function getJour(){
+      const d=new Date().getDay();
+      return d===0 ? "Dimanche" : jours[d-1];
     }
+    let jourSel = getJour();
 
-    // ===== Helpers & mémoire locale =====
-    function toTimeValue(hhmm){ const [h,m]=hhmm.split(':').map(Number); return h*60+m; }
-    function todayKey(){ return new Date().toISOString().slice(0,10); } // YYYY-MM-DD
-    // dédup locale
-    function getRungSet(){ const k="rung_"+todayKey(); try{return JSON.parse(localStorage.getItem(k))||{}}catch{return{}} }
-    function setRungSet(o){ localStorage.setItem("rung_"+todayKey(), JSON.stringify(o)); }
-    function hasRung(id){ return !!getRungSet()[id]; }
-    function markRung(id){ const s=getRungSet(); s[id]=true; setRungSet(s); }
-    // rattrapage
-    function lastCheckKey(){ return "lastCheckMin_"+todayKey(); }
-    function getLastCheckedMinute(){ const v=localStorage.getItem(lastCheckKey()); return v?parseInt(v,10):null; }
-    function setLastCheckedMinute(min){ localStorage.setItem(lastCheckKey(), String(min)); }
-    // purge jour
-    (function stampToday(){
-      const k="lastVisitDate", now=todayKey(), prev=localStorage.getItem(k);
-       if(prev!==now){
-        localStorage.setItem(k, now);
-        if(prev){
-          localStorage.removeItem("rung_"+prev);
-          localStorage.removeItem("lastCheckMin_"+prev);
-        }
+    jours.forEach(j=>{
+      const el=document.createElement('div');
+      el.textContent=j; el.className="tab"+(j===jourSel?" active":"");
+      el.onclick=()=>{ jourSel=j; syncTabs(); show(); };
+      tabsEl.appendChild(el);
+    });
+    function syncTabs(){ [...tabsEl.children].forEach(t=>t.classList.toggle('active', t.textContent===jourSel)); }
+
+    // --- localStorage (dédup / rattrapage) ---
+    const dayKey = () => new Date().toISOString().slice(0,10);
+    const rungKey = (d=dayKey()) => "rung_"+d;
+    const lastKey = (d=dayKey()) => "lastMin_"+d;
+
+    const hasRung = id => !!(JSON.parse(localStorage.getItem(rungKey())||"{}")[id]);
+    function markRung(id){
+      const k=rungKey(), m=JSON.parse(localStorage.getItem(k)||"{}"); m[id]=true; localStorage.setItem(k, JSON.stringify(m));
+    }
+    const getLast = () => { const v=localStorage.getItem(lastKey()); return v?+v:null; };
+    const setLast = m => localStorage.setItem(lastKey(), String(m));
+
+    // reset si on change de jour
+    (function(){
+      const k="visitDate", today=dayKey(), prev=localStorage.getItem(k);
+      if(prev!==today){
+        localStorage.setItem(k,today);
+        if(prev){ localStorage.removeItem(rungKey(prev)); localStorage.removeItem(lastKey(prev)); }
       }
     })();
 
-    // ===== LISTE =====
-    async function afficherTrains(){
-      liste.innerHTML="";
+    // --- Liste ---
+    async function show(){
+      listEl.innerHTML="";
       try{
-        const snap = await db.collection("trains").where("jour","==",jourActif).orderBy("timeValue").get();
-        const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()}));
-        rows.forEach(renderRow);
-      }catch(e){
-        const snap = await db.collection("trains").where("jour","==",jourActif).get();
-        const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()}));
-        rows.sort((a,b)=>(a.timeValue ?? toTimeValue(a.horaire))-(b.timeValue ?? toTimeValue(b.horaire)));
-        rows.forEach(renderRow);
-        console.warn("⚠️ Crée l’index Firestore (jour + timeValue) si demandé.");
+        const snap = await db.collection("trains").where("jour","==",jourSel).orderBy("timeValue").get();
+        const rows=[]; snap.forEach(d=>rows.push({id:d.id, ...d.data()}));
+        rows.forEach(render);
+      }catch{
+        const snap = await db.collection("trains").where("jour","==",jourSel).get();
+        const rows=[]; snap.forEach(d=>rows.push({id:d.id, ...d.data()}));
+        rows.sort((a,b)=>(a.timeValue ?? toMin(a.horaire)) - (b.timeValue ?? toMin(b.horaire)));
+        rows.forEach(render);
+        console.warn("Besoin d’un index Firestore (jour + timeValue) ? Clique “Create index”, attends, recharge.");
       }
     }
-    function renderRow(t){
+    function render(t){
       const li=document.createElement('li');
       li.innerHTML=`<span>Train ${t.numero} - ${t.horaire}</span>`;
-      const actions=document.createElement('div'); actions.className="actions";
-      const bE=document.createElement('button'); bE.textContent="✏️"; bE.onclick=()=>modifierTrain(t.id,t);
-      const bD=document.createElement('button'); bD.textContent="🗑️"; bD.onclick=()=>supprimerTrain(t.id);
-      actions.append(bE,bD); li.appendChild(actions); liste.appendChild(li);
+      const act=document.createElement('div'); act.className="actions";
+      const bE=document.createElement('button'); bE.textContent="✏️"; bE.onclick=()=>edit(t.id,t);
+      const bD=document.createElement('button'); bD.textContent="🗑️"; bD.onclick=()=>del(t.id);
+      act.append(bE,bD); li.appendChild(act); listEl.appendChild(li);
     }
 
-    // ===== CRUD =====
     form.addEventListener('submit', async e=>{
       e.preventDefault();
-      const numero=document.getElementById('numero').value.trim();
-      const horaire=document.getElementById('horaire').value;
-      if(!numero.match(/^[A-Za-z0-9]+$/) || !horaire) return;
-      await db.collection("trains").add({ numero, horaire, jour:jourActif, timeValue: toTimeValue(horaire) });
-      form.reset(); afficherTrains();
+      const num=inNum.value.trim(), h=inTime.value;
+      if(!/^[A-Za-z0-9]+$/.test(num) || !h) return;
+      await db.collection("trains").add({ numero:num, horaire:h, jour:jourSel, timeValue: toMin(h) });
+      form.reset(); show();
     });
-    async function modifierTrain(id,t){
-      const n=prompt("Nouveau numéro ?",t.numero);
-      const h=prompt("Nouvel horaire (HH:MM) ?",t.horaire);
+
+    async function edit(id, t){
+      const n=prompt("Nouveau numéro ?", t.numero);
+      const h=prompt("Nouvel horaire (HH:MM) ?", t.horaire);
       if(n && /^\d{2}:\d{2}$/.test(h)){
-        await db.collection("trains").doc(id).update({ numero:n, horaire:h, timeValue: toTimeValue(h) });
-        afficherTrains();
+        await db.collection("trains").doc(id).update({ numero:n, horaire:h, timeValue: toMin(h) });
+        show();
       }
     }
-    async function supprimerTrain(id){
-      if(confirm("Êtes-vous sûr de vouloir supprimer ce train ?")){
-        await db.collection("trains").doc(id).delete(); afficherTrains();
+    async function del(id){
+      if(confirm("Supprimer ce train ?")){
+        await db.collection("trains").doc(id).delete();
+        show();
       }
     }
 
-    // ===== ALARMES =====
-    const CATCHUP = CATCHUP_MINUTES;
-    async function checkAlarme(){
-      const now=new Date();
-      const nowMin=now.getHours()*60 + now.getMinutes();
-      const jc=jourCourant();
+    // --- Alarme ---
+    const toMin = hhmm => { const [H,M]=hhmm.split(':').map(Number); return H*60+M; };
 
-      const last=getLastCheckedMinute();
-      const leftBound=Math.max(0, nowMin - CATCHUP);
-      const startMin=(last===null)? leftBound : Math.min(nowMin, Math.max(last+1, leftBound));
-      if(startMin>nowMin){ setLastCheckedMinute(nowMin); return; }
+    async function tick(){
+      const now=new Date(), cur=now.getHours()*60+now.getMinutes(), j=getJour();
+      const last=getLast(), left=Math.max(0, cur - CATCHUP_MIN), start=(last==null)? left : Math.min(cur, Math.max(last+1, left));
+      if(start>cur){ setLast(cur); return; }
 
       let snap;
       try{
         snap = await db.collection("trains")
-          .where("jour","==",jc)
-          .where("timeValue",">=",startMin)
-          .where("timeValue","<=",nowMin)
+          .where("jour","==",j)
+          .where("timeValue",">=",start)
+          .where("timeValue","<=",cur)
           .orderBy("timeValue")
           .get();
-      }catch(e){
-        const all=await db.collection("trains").where("jour","==",jc).get();
-        const arr=[]; all.forEach(d=>{ const t=d.data(); if(t.timeValue>=startMin && t.timeValue<=nowMin) arr.push({id:d.id,...t}); });
+      }catch{
+        const all=await db.collection("trains").where("jour","==",j).get();
+        const arr=[]; all.forEach(d=>{ const t=d.data(); if(t.timeValue>=start && t.timeValue<=cur) arr.push({id:d.id, ...t}); });
         arr.sort((a,b)=>a.timeValue-b.timeValue);
-        for(const t of arr) await triggerAlarmOnce(t.id,t,jc);
-        setLastCheckedMinute(nowMin);
+        for(const t of arr) await ring(t.id,t,j);
+        setLast(cur);
         return;
       }
 
-      const pending=[]; snap.forEach(d=>pending.push({id:d.id,...d.data()}));
-      for(const t of pending) await triggerAlarmOnce(t.id,t,jc);
-      setLastCheckedMinute(nowMin);
+      const list=[]; snap.forEach(d=>list.push({id:d.id, ...d.data()}));
+      for(const t of list) await ring(t.id,t,j);
+      setLast(cur);
     }
 
-    async function triggerAlarmOnce(docId,t,jc){
-      if(hasRung(docId)) return;
+    async function ring(id, t, j){
+      if(hasRung(id)) return;
 
-      // démarre la boucle (WebAudio loop + fallback)
-      try{ startAlarmLoop(); }catch(_){}
+      try{ startLoop(); }catch{}
 
-      const message=`Train ${t.numero} (${jc} - ${t.horaire}) !`;
+      const msg = `Train ${t.numero} (${j} - ${t.horaire}) !`;
 
-      // Notification persistante (renotify)
       if("Notification" in window && Notification.permission==="granted"){
         try{
-          const n=new Notification("🚂 Alarme train",{
-            body:message, requireInteraction:true, tag:"alarme-train-"+docId, renotify:true
-          });
-          n.onclick=()=>{ window.focus(); try{n.close();}catch(_){}}; 
-        }catch(_){}
+          const n=new Notification("🚂 Alarme train", { body: msg, requireInteraction:true, tag:"train-"+id, renotify:true });
+          n.onclick=()=>{ window.focus(); try{n.close();}catch{} };
+        }catch{}
       }
 
-      // Si l’onglet est visible : acquittement + on coupe
       if(!document.hidden){
-        // la popup bloquante peut empêcher le démarrage audio ;
-        // on la décale légèrement pour laisser la boucle s'amorcer
-        setTimeout(()=>{
-          alert("🚂 "+message);
-          stopAlarmLoop();
-        },100);
+        setTimeout(()=>{ alert("🚂 "+msg); stopLoop(); }, 100); // laisse démarrer le son avant l’alert
       }
 
-      // dédup locale
-      markRung(docId);
+      markRung(id);
     }
 
     document.addEventListener("visibilitychange", ()=>{
       if(!document.hidden){
-        // si ça sonnait, coupe et recheck
-        if(loopSource) stopAlarmLoop();
-        checkAlarme();
+        if(loopSrc) stopLoop();
+        tick();
       }
     });
 
-    setInterval(checkAlarme, 1000);
+    // --- init ---
+    (function(){
+      // année footer
+      const y=document.getElementById('year'); if(y) y.textContent = new Date().getFullYear();
 
-    // Init
-    (function init(){ majTabs(); afficherTrains(); checkAlarme(); })();
-
-    document.getElementById('year').textContent = new Date().getFullYear();
-
+      syncTabs();
+      show();
+      tick();
+      setInterval(tick, 1000);
+    })();
   </script>
-<footer>
-  © <span id="year"></span> — Accord Départ — Conception et droits réservés par Maxime Foerster — Usage interne au PCD de Lutterbach.
-  Toute reproduction ou diffusion non autorisée est interdite.
-</footer>
 
+  <footer>
+    © <span id="year"></span> — Accord Départ — Conception et droits réservés par Maxime Foerster — Usage interne au PCD de Lutterbach.
+    Toute reproduction ou diffusion non autorisée est interdite.
+  </footer>
 </body>
 </html>
