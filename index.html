@@ -335,5 +335,9 @@
     © <span id="year"></span> — Accord Départ — Conception et droits réservés par Maxime Foerster — Usage interne au PCD de Lutterbach.
     Toute reproduction ou diffusion non autorisée est interdite.
   </footer>
+  <script>
+  const y = document.getElementById('year');
+  if (y) y.textContent = new Date().getFullYear();
+</script>
 </body>
 </html>
