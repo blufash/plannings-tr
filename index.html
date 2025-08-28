@@ -30,10 +30,20 @@
 
     ul{ list-style:none; padding:0; margin-top:12px; }
     li{
-      background:#fff; margin:6px auto; padding:10px; border-radius:8px; width:min(420px,92%);
+      background:#fff; margin:6px auto; padding:10px; border-radius:8px; width:min(520px,92%);
       display:flex; justify-content:space-between; align-items:center; box-shadow:var(--shadow);
     }
     .actions button{ margin-left:6px; }
+
+    /* lisibilité & état */
+    li span { font-size: 16px; }
+    li.upcoming span { color:#111; font-weight:700; }
+    li.past { opacity:.55; }
+    li.past span { color:#555; font-weight:500; }
+    .badge {
+      font-size: 11px; padding:2px 6px; border-radius: 10px; margin-left: 8px;
+      background:#eef1f6; color:#3b4a66; border:1px solid #dfe6f2;
+    }
 
     /* footer */
     body > footer{
@@ -106,20 +116,15 @@
       return ctx;
     }
 
-    // buffer 2s “ding-dong” (pas de setInterval → fiable en arrière-plan)
+    // buffer 2s “ding-dong” (indépendant des timers)
     function mkDingDong(c){
       const sr=c.sampleRate, dur=2, N=sr*dur|0;
       const b=c.createBuffer(1,N,sr), ch=b.getChannelData(0);
-
       const env=(t,a,r,L)=> t<a? t/a : t>(L-r)? (L-t)/r : 1;
-
-      // ding : 0→0.45s @1kHz | dong : 0.5→1.2s @400Hz
       const dLen=0.45, dA=0.02, dR=0.25, dF=1000;
       const gOff=0.5, gLen=0.7, gA=0.02, gR=0.35, gF=400;
-
       for(let i=0;i<N;i++){
-        const t=i/sr;
-        let v=0;
+        const t=i/sr; let v=0;
         if(t<=dLen) v += Math.sin(2*Math.PI*dF*t)*0.30*env(t,dA,dR,dLen);
         const td=t-gOff;
         if(td>=0 && td<=gLen) v += Math.sin(2*Math.PI*gF*td)*0.35*env(td,gA,gR,gLen);
@@ -214,6 +219,17 @@
       }
     })();
 
+    // --- Helpers Firestore pour "Validé" ---
+    const nowIso = () => new Date().toISOString();
+    async function setAck(id, on){
+      try {
+        await db.collection("trains").doc(id).update(
+          on ? { ack:true,  ackAt: nowIso() } :
+               { ack:false, ackAt: firebase.firestore.FieldValue.delete() }
+        );
+      } catch(e) { console.warn("Ack error", e); }
+    }
+
     // --- Liste ---
     async function show(){
       listEl.innerHTML="";
@@ -229,20 +245,45 @@
         console.warn("Besoin d’un index Firestore (jour + timeValue) ? Clique “Create index”, attends, recharge.");
       }
     }
+
     function render(t){
       const li=document.createElement('li');
-      li.innerHTML=`<span>Train ${t.numero} - ${t.horaire}</span>`;
-      const act=document.createElement('div'); act.className="actions";
+      li.classList.add(t.ack ? 'past' : 'upcoming');
+
+      const left=document.createElement('span');
+      left.textContent = `Train ${t.numero} - ${t.horaire}`;
+      if (t.ack) {
+        const badge=document.createElement('span');
+        badge.className='badge'; badge.textContent='Validé';
+        left.appendChild(badge);
+      }
+
+      const act=document.createElement('div'); act.className='actions';
+      const bAck=document.createElement('button');
+      if (t.ack) {
+        bAck.textContent="↩️ Annuler";
+        bAck.title="Marquer comme non validé";
+        bAck.onclick=async()=>{ await setAck(t.id,false); show(); };
+      } else {
+        bAck.textContent="✅ Valider";
+        bAck.title="Marquer comme validé";
+        bAck.onclick=async()=>{ await setAck(t.id,true); show(); };
+      }
+
       const bE=document.createElement('button'); bE.textContent="✏️"; bE.onclick=()=>edit(t.id,t);
       const bD=document.createElement('button'); bD.textContent="🗑️"; bD.onclick=()=>del(t.id);
-      act.append(bE,bD); li.appendChild(act); listEl.appendChild(li);
+
+      act.append(bAck,bE,bD);
+      li.append(left, act);
+      listEl.appendChild(li);
     }
 
+    // --- CRUD ---
     form.addEventListener('submit', async e=>{
       e.preventDefault();
       const num=inNum.value.trim(), h=inTime.value;
       if(!/^[A-Za-z0-9]+$/.test(num) || !h) return;
-      await db.collection("trains").add({ numero:num, horaire:h, jour:jourSel, timeValue: toMin(h) });
+      await db.collection("trains").add({ numero:num, horaire:h, jour:jourSel, timeValue: toMin(h), ack:false });
       form.reset(); show();
     });
 
@@ -306,7 +347,13 @@
       }
 
       if(!document.hidden){
-        setTimeout(()=>{ alert("🚂 "+msg); stopLoop(); }, 100); // laisse démarrer le son avant l’alert
+        // laisse 100ms au son pour démarrer, puis on acquitte
+        setTimeout(async ()=>{
+          alert("🚂 "+msg);
+          stopLoop();
+          await setAck(id, true); // <-- valide le train
+          show();                 // refresh pour griser
+        }, 100);
       }
 
       markRung(id);
@@ -321,23 +368,22 @@
 
     // --- init ---
     (function(){
-      // année footer
-      const y=document.getElementById('year'); if(y) y.textContent = new Date().getFullYear();
-
       syncTabs();
       show();
       tick();
       setInterval(tick, 1000);
     })();
+
+    // footer year une fois le DOM prêt
+    document.addEventListener('DOMContentLoaded', ()=>{
+      const y=document.getElementById('year');
+      if(y) y.textContent=new Date().getFullYear();
+    });
   </script>
 
   <footer>
     © <span id="year"></span> — Accord Départ — Conception et droits réservés par Maxime Foerster — Usage interne au PCD de Lutterbach.
     Toute reproduction ou diffusion non autorisée est interdite.
   </footer>
-  <script>
-  const y = document.getElementById('year');
-  if (y) y.textContent = new Date().getFullYear();
-</script>
 </body>
 </html>
